@@ -9,6 +9,20 @@ A real-time crypto market data terminal built with React and TypeScript. Streams
 - Ticker grid — 20 symbol cards with live prices, 24h change, and sparklines
 - Connection status — WebSocket health indicator showing messages/sec, reconnection state, and sequence gap count
 
+### Project structure
+```bash
+src/
+  components/
+  lib/
+    websocket/
+    binance/
+    orderbook/
+    format/
+  stores/
+  hooks/
+  pages/
+```
+
 ### Running locally
 ```bash
 # Clone
