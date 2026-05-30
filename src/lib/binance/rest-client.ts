@@ -1,4 +1,4 @@
-import { type ExchangeInfoResponse } from './types';
+import type { ExchangeInfoResponse, DepthSnapshotResponse, KlineResponse } from './types';
 
 const BASE_URL: string = 'https://api.binance.com';
 
@@ -36,4 +36,9 @@ export const binanceRest = {
     get<ExchangeInfoResponse>('/api/v3/exchangeInfo', {
       symbols: JSON.stringify(tickerSymbols),
     }),
+  getDepthSnapshot: (symbol: string, limit = 1000) =>
+    get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }),
+
+  getKlines: (symbol: string, interval: string, limit = 500) =>
+    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }),
 };

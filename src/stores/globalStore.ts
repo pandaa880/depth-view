@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
 import { type SymbolInfo } from '../models/SymbolInfo';
+import { type TickerData } from '../models';
 
 type CachedSymbolInfo = Record<string, SymbolInfo>;
 
@@ -19,6 +20,23 @@ export const useExchangeInfoStore = create<ExchangeInfoStore>()(
       isBootstrapped: false,
       setSymbolInfo: (info) => set({ symbolInfo: info, isBootstrapped: true }),
     }),
-    { name: 'Markets UI' },
+    { name: 'Markets UI - Depth view' },
   ),
+);
+
+export type TickerDataStore = {
+  tickers: Record<string, TickerData>;
+  setTickers: (updates: Record<string, TickerData>) => void;
+}
+
+export const useTickerStore = create<TickerDataStore>()(
+  devtools(
+    (set) => ({
+      tickers: {},
+      setTickers: (updates) => set((state) => ({
+        tickers: { ...state.tickers, ...updates }
+      }))
+    }),
+    { name: "Markets UI - Ticker Store" }
+  )
 );

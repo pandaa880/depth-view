@@ -24,18 +24,12 @@ export class BinanceWebSocketManager {
   private status: ConnectionStatus = CONNECTION_STATUS.Uninstantiated;
   private messageId: number = 1;
 
-  private currentStream: string[] = [];
   private isIntentionallyDisconnected: boolean = false;
   private reconnectAttempt: number = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // reconnection logic
-  // check if connection is intentionally closed
-  // if not then try reconnect attempt
-
   // connect to url
   connect(): void {
-    // this.currentStream = streams;
     this.isIntentionallyDisconnected = false;
 
     if (
@@ -70,7 +64,6 @@ export class BinanceWebSocketManager {
       if (parsed.stream && parsed.data) {
         this.subscriptions.get(parsed.stream)?.forEach(h => h(parsed.data));
       }
-
     });
 
     this.socket.addEventListener('close', () => {
@@ -87,7 +80,6 @@ export class BinanceWebSocketManager {
     });
   }
 
-  // disconnect
   disconnect(): void {
     if (!this.socket) return;
 
@@ -166,6 +158,23 @@ export class BinanceWebSocketManager {
       params: streams,
       id: this.messageId++,
     }));
+  }
+
+  pause(): void {
+    if (!this.socket) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.socket.close();
+    this.socket = null;
+    this.setStatus(CONNECTION_STATUS.Closed);
+    // isIntentionallyDisconnected stays false
+  }
+
+  resume(): void {
+    const streams = Array.from(this.subscriptions.keys());
+    if (streams.length > 0) this.connect(); // resubscribeAll fires automatically on open
   }
 
 
