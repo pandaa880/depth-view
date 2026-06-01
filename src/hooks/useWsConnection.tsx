@@ -9,8 +9,8 @@ import { useExchangeInfoStore } from '../stores/globalStore';
 import type { TickerData } from '../models';
 
 export function useWsConnection() {
-  const miniTickerSubscriptionHandler = (data: MiniTickerRaw[]) => {
-    const messages = data;
+  const miniTickerSubscriptionHandler = (data: unknown) => {
+    const messages = data as MiniTickerRaw[];
     // filter out the tracked symbols
     const trackedSymbols = new Set(Object.keys(useExchangeInfoStore.getState().symbolInfo));
 

@@ -8,7 +8,10 @@ export const CONNECTION_STATUS = {
   Closing: 'closing',
   Closed: 'closed',
   Disconnected: 'disconnected',
-  Reconnecting: 'reconnecting'
+  Reconnecting: 'reconnecting',
+
+  // for UI purpose
+  Live: 'live'
 } as const;
 
 export type ConnectionStatus =
@@ -132,7 +135,7 @@ export class BinanceWebSocketManager {
   sendSubscribe(streamName: string): void {
     if (this.status !== CONNECTION_STATUS.Open) return;
 
-    this.socket.send(JSON.stringify({
+    this.socket?.send(JSON.stringify({
       method: 'SUBSCRIBE',
       params: [streamName],
       id: this.messageId++
@@ -142,7 +145,7 @@ export class BinanceWebSocketManager {
   sendUnsubscribe(streamName: string): void {
     if (this.status !== CONNECTION_STATUS.Open) return;
 
-    this.socket.send(JSON.stringify({
+    this.socket?.send(JSON.stringify({
       method: 'UNSUBSCRIBE',
       params: [streamName],
       id: this.messageId++
@@ -198,10 +201,14 @@ export class BinanceWebSocketManager {
   setupVisibilityHandler(): void {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
-        this.disconnect();
+        // this.disconnect();
+        this.pause();
       } else {
         const streams = Array.from(this.subscriptions.keys());
-        if (streams.length > 0) this.connect();
+        if (streams.length > 0) {
+           // this.connect();
+          this.resume();
+        }
       }
     });
   }

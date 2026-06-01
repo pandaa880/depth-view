@@ -1,13 +1,8 @@
-import { createRoute, Navigate } from '@tanstack/react-router';
+import { Navigate } from '@tanstack/react-router';
 
 import { useExchangeInfoStore } from '../stores/globalStore';
-import { rootRoute } from '../router';
+import { detailRoute } from '../router';
 
-export const detailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/symbol/$symbol',
-  component: Detail,
-});
 
 export function Detail() {
   const { symbol } = detailRoute.useParams();

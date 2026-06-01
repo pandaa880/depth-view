@@ -12,6 +12,10 @@
 
   --color-bull: #22c55e;
   --color-bear: #ef4444;
+
+  --color-connection-live: #22c55e;
+  --color-connection-in-progress: #F0B90B;
+  --color-connection-failed: #ef4444;
 }
 
 @layer base {

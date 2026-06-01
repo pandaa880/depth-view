@@ -18,7 +18,7 @@ const homeRoute = createRoute({
   component: Home,
 });
 
-const detailRoute = createRoute({
+export const detailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/symbol/$symbol',  // $ prefix = typed param
   component: Detail,
