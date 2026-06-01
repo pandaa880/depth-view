@@ -1,22 +1,37 @@
 import { useEffect, useState } from 'react';
-import { wsManager, type ConnectionStatus, CONNECTION_STATUS as ConnectionStatusValue } from '../lib/binance/BinanceWebSocket';
+import {
+  wsManager,
+  type ConnectionStatus,
+} from '../lib/binance/BinanceWebSocket';
 
 type UseWsStatusResult = {
-  status: ConnectionStatus;
+  status: string;
   statusElmStyles: {
-    dot: string,
-    text: string,
-  }
-}
+    dot: string;
+    text: string;
+  };
+};
 
-const statusStyles: Record<ConnectionStatus, { dot: string; text: string }> = {
-  uninstantiated: { dot: 'bg-connection-failed', text: 'text-connection-failed' },
-  connecting: { dot: 'bg-connection-in-progress', text: 'text-connection-in-progress' },
+const statusStyles: Record<string, { dot: string; text: string }> = {
+  uninstantiated: {
+    dot: 'bg-connection-failed',
+    text: 'text-connection-failed',
+  },
+  connecting: {
+    dot: 'bg-connection-in-progress',
+    text: 'text-connection-in-progress',
+  },
   open: { dot: 'bg-connection-live', text: 'text-connection-live' },
-  closing: { dot: 'bg-connection-in-progress', text: 'text-connection-in-progress' },
+  closing: {
+    dot: 'bg-connection-in-progress',
+    text: 'text-connection-in-progress',
+  },
   closed: { dot: 'bg-connection-failed', text: 'text-connection-failed' },
   disconnected: { dot: 'bg-connection-failed', text: 'text-connection-failed' },
-  reconnecting: { dot: 'bg-connection-in-progress', text: 'text-connection-in-progress' },
+  reconnecting: {
+    dot: 'bg-connection-in-progress',
+    text: 'text-connection-in-progress',
+  },
   live: { dot: 'bg-connection-live', text: 'text-connection-live' },
 };
 
@@ -32,6 +47,6 @@ export function useWsStatus(): UseWsStatusResult {
 
   return {
     status: statusText,
-    statusElmStyles
+    statusElmStyles,
   };
 }

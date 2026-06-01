@@ -9,9 +9,6 @@ export const CONNECTION_STATUS = {
   Closed: 'closed',
   Disconnected: 'disconnected',
   Reconnecting: 'reconnecting',
-
-  // for UI purpose
-  Live: 'live'
 } as const;
 
 export type ConnectionStatus =
@@ -65,7 +62,7 @@ export class BinanceWebSocketManager {
       if (parsed.result === null && parsed.id) return;
 
       if (parsed.stream && parsed.data) {
-        this.subscriptions.get(parsed.stream)?.forEach(h => h(parsed.data));
+        this.subscriptions.get(parsed.stream)?.forEach((h) => h(parsed.data));
       }
     });
 
@@ -104,7 +101,7 @@ export class BinanceWebSocketManager {
   scheduleReconnect(): void {
     if (this.reconnectTimer) return;
 
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30_000)
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30_000);
     this.reconnectAttempt++;
     this.setStatus(CONNECTION_STATUS.Reconnecting);
 
@@ -112,7 +109,6 @@ export class BinanceWebSocketManager {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
-
   }
 
   // message handler
@@ -135,32 +131,38 @@ export class BinanceWebSocketManager {
   sendSubscribe(streamName: string): void {
     if (this.status !== CONNECTION_STATUS.Open) return;
 
-    this.socket?.send(JSON.stringify({
-      method: 'SUBSCRIBE',
-      params: [streamName],
-      id: this.messageId++
-    }))
+    this.socket?.send(
+      JSON.stringify({
+        method: 'SUBSCRIBE',
+        params: [streamName],
+        id: this.messageId++,
+      }),
+    );
   }
 
   sendUnsubscribe(streamName: string): void {
     if (this.status !== CONNECTION_STATUS.Open) return;
 
-    this.socket?.send(JSON.stringify({
-      method: 'UNSUBSCRIBE',
-      params: [streamName],
-      id: this.messageId++
-    }))
+    this.socket?.send(
+      JSON.stringify({
+        method: 'UNSUBSCRIBE',
+        params: [streamName],
+        id: this.messageId++,
+      }),
+    );
   }
 
   private resubscribeAll(): void {
     const streams = Array.from(this.subscriptions.keys());
     if (streams.length === 0) return;
 
-    this.socket?.send(JSON.stringify({
-      method: 'SUBSCRIBE',
-      params: streams,
-      id: this.messageId++,
-    }));
+    this.socket?.send(
+      JSON.stringify({
+        method: 'SUBSCRIBE',
+        params: streams,
+        id: this.messageId++,
+      }),
+    );
   }
 
   pause(): void {
@@ -179,7 +181,6 @@ export class BinanceWebSocketManager {
     const streams = Array.from(this.subscriptions.keys());
     if (streams.length > 0) this.connect(); // resubscribeAll fires automatically on open
   }
-
 
   // status change handler
   onStatusChange(handler: StatusHandler): () => void {
@@ -206,7 +207,7 @@ export class BinanceWebSocketManager {
       } else {
         const streams = Array.from(this.subscriptions.keys());
         if (streams.length > 0) {
-           // this.connect();
+          // this.connect();
           this.resume();
         }
       }
@@ -217,4 +218,3 @@ export class BinanceWebSocketManager {
 export const wsManager = new BinanceWebSocketManager();
 
 wsManager.setupVisibilityHandler();
-

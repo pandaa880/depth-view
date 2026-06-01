@@ -1,32 +1,21 @@
-import { useTickerStore } from "../../stores/globalStore"
+import { useShallow } from 'zustand/react/shallow';
 
-import { TickerCard } from "./TickerCard";
+import { useExchangeInfoStore } from '../../stores/globalStore';
+
+import { TickerCard } from './TickerCard';
 
 export const TickerGrid = () => {
-  const tickerData = useTickerStore((state) => state.tickers);
-
-  const tickerCardData = Object.values(tickerData).map((value) => {
-    return {
-      symbol: value.symbol,
-      lastPrice: value.lastPrice,
-      flashDirection: value.flashDirection,
-      priceChangePercent: value.priceChangePercent,
-      priceHistory: value.priceHistory
-    }
-  });
+  const symbols = useExchangeInfoStore(
+    useShallow((state) => Object.keys(state.symbolInfo)),
+  );
 
   const renderTickerCards = () => {
-    return tickerCardData.map(item => (
-      <div key={item.symbol} className="mx-4 min-w-40">
-      <TickerCard {...item} />
+    return symbols.map((s) => (
+      <div key={s} className="mx-4 min-w-40">
+        <TickerCard symbol={s} />
       </div>
-    ))
+    ));
+  };
 
-  }
-
-  return (
-    <div className="w-full flex">
-      {renderTickerCards()}
-    </div>
-  )
-}
+  return <div className="w-full flex">{renderTickerCards()}</div>;
+};

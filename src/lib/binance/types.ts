@@ -64,13 +64,13 @@ export interface ExchangeInfoResponse {
   symbols: BinanceSymbol[];
 }
 
-type BidItem = [string, string];      /// [Price, Qty]
-type AskItem = [string, string];      /// [Price, Qty]
+type BidItem = [string, string]; /// [Price, Qty]
+type AskItem = [string, string]; /// [Price, Qty]
 
 export interface DepthSnapshotResponse {
   lastUpdateId: number;
-  bids: BidItem[],
-  asks: AskItem[]
+  bids: BidItem[];
+  asks: AskItem[];
 }
 
 export type BinanceKlineTuple = [
@@ -85,7 +85,7 @@ export type BinanceKlineTuple = [
   number, // 8: Number of trades
   string, // 9: Taker buy base asset volume
   string, // 10: Taker buy quote asset volume
-  string  // 11: Unused field (Ignore)
+  string, // 11: Unused field (Ignore)
 ];
 
 export interface ApiResponseRateLimit {

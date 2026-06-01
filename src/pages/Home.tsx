@@ -1,6 +1,6 @@
-import { useWsStatus } from "../hooks/useWsStatus";
+import { useWsStatus } from '../hooks/useWsStatus';
 
-import { TickerGrid } from "../components/ticker-ui/TickerGrid";
+import { TickerGrid } from '../components/ticker-ui/TickerGrid';
 
 import LogoImg from '../assets/logo-dark.svg';
 
@@ -14,8 +14,12 @@ export const Home = () => {
           <img src={LogoImg} alt="logo" className="w-full h-10" />
         </div>
         <div className="flex items-center gap-2">
-          <div className={`inline-block w-1.5 h-1.5 rounded-full ${statusElmStyles.dot}`} />
-          <div className={`text-xs ${statusElmStyles.text} capitalize`}>{status}</div>
+          <div
+            className={`inline-block w-1.5 h-1.5 rounded-full ${statusElmStyles.dot}`}
+          />
+          <div className={`text-xs ${statusElmStyles.text} capitalize`}>
+            {status}
+          </div>
         </div>
       </nav>
 
@@ -24,5 +28,4 @@ export const Home = () => {
       </div>
     </section>
   );
-}
-
+};

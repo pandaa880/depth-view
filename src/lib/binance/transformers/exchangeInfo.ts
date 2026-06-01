@@ -1,4 +1,9 @@
-import type { BinanceSymbol, ExchangeInfoResponse, PriceFilter, LotSizeFilter} from '../types';
+import type {
+  BinanceSymbol,
+  ExchangeInfoResponse,
+  PriceFilter,
+  LotSizeFilter,
+} from '../types';
 import type { SymbolInfo } from '../../../models/SymbolInfo';
 
 export const transformSymbol = (raw: BinanceSymbol): SymbolInfo | null => {
@@ -7,11 +12,11 @@ export const transformSymbol = (raw: BinanceSymbol): SymbolInfo | null => {
   }
 
   const priceFilter = raw.filters.find(
-    (item): item is PriceFilter => item.filterType === 'PRICE_FILTER'
+    (item): item is PriceFilter => item.filterType === 'PRICE_FILTER',
   );
 
   const lotFilter = raw.filters.find(
-    (f): f is LotSizeFilter => f.filterType === 'LOT_SIZE'
+    (f): f is LotSizeFilter => f.filterType === 'LOT_SIZE',
   );
 
   if (!priceFilter || !lotFilter) return null;

@@ -32,7 +32,6 @@ export function formatPrice(symbol: string, rawPrice: string): string {
   });
 }
 
-
 export function formatPercent(value: number): {
   text: string;
   arrow: '▲' | '▼';
@@ -47,4 +46,3 @@ export function formatPercent(value: number): {
     isPositive,
   };
 }
-

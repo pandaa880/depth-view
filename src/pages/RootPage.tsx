@@ -23,7 +23,6 @@ export const RootPage = () => {
         <h1>Something went wrong</h1>
       </section>
     );
-
   }
 
   return (
@@ -31,8 +30,5 @@ export const RootPage = () => {
       <Outlet />
       <TanStackRouterDevtools />
     </>
-  )
-}
-
-
-
+  );
+};

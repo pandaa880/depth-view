@@ -27,16 +27,17 @@ export const useExchangeInfoStore = create<ExchangeInfoStore>()(
 export type TickerDataStore = {
   tickers: Record<string, TickerData>;
   setTickers: (updates: Record<string, TickerData>) => void;
-}
+};
 
 export const useTickerStore = create<TickerDataStore>()(
   devtools(
     (set) => ({
       tickers: {},
-      setTickers: (updates) => set((state) => ({
-        tickers: { ...state.tickers, ...updates }
-      }))
+      setTickers: (updates) =>
+        set((state) => ({
+          tickers: { ...state.tickers, ...updates },
+        })),
     }),
-    { name: "Markets UI - Ticker Store" }
-  )
+    { name: 'Markets UI - Ticker Store' },
+  ),
 );

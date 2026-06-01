@@ -1,4 +1,8 @@
-import type { ExchangeInfoResponse, DepthSnapshotResponse, KlineResponse } from './types';
+import type {
+  ExchangeInfoResponse,
+  DepthSnapshotResponse,
+  KlineResponse,
+} from './types';
 
 const BASE_URL: string = 'https://api.binance.com';
 

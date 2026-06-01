@@ -6,17 +6,19 @@ const buildPoints = (history: number[]): string => {
   const max = Math.max(...history);
   const range = max - min || 1;
 
-  return history.map((price, i) => {
-    const x = (i / (history.length - 1)) * 60;
-    const y = 18 - ((price - min) / range) * 18; // invert Y
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ')
-}
+  return history
+    .map((price, i) => {
+      const x = (i / (history.length - 1)) * 60;
+      const y = 18 - ((price - min) / range) * 18; // invert Y
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+};
 
 type SparklineProps = {
-  history: number[],
-  color: string
-}
+  history: number[];
+  color: string;
+};
 
 export const Sparkline = (props: SparklineProps) => {
   const points = buildPoints(props.history);
@@ -35,5 +37,4 @@ export const Sparkline = (props: SparklineProps) => {
       />
     </svg>
   );
-}
-
+};

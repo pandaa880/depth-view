@@ -25,8 +25,7 @@ export function useExchangeInfo() {
       const message = error instanceof Error ? error.message : String(error);
       setError(message);
     }
-  }, [setSymbolInfo]
-  );
+  }, [setSymbolInfo]);
 
   useEffect(() => {
     if (!isBootstrapped) {
