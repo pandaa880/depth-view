@@ -1,14 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- ask bars -->
   <rect x="4"  y="3"  width="9"  height="3" rx="1" fill="#ef4444" opacity="0.5"/>
   <rect x="4"  y="8"  width="14" height="3" rx="1" fill="#ef4444" opacity="0.75"/>
   <rect x="4"  y="13" width="19" height="3" rx="1" fill="#ef4444"/>
-  <!-- spread line -->
   <line x1="2" y1="17.5" x2="30" y2="17.5" stroke="#334155" stroke-width="0.75" stroke-dasharray="2,1.5"/>
-  <!-- bid bars -->
   <rect x="4"  y="19" width="19" height="3" rx="1" fill="#22c55e"/>
   <rect x="4"  y="24" width="13" height="3" rx="1" fill="#22c55e" opacity="0.75"/>
   <rect x="4"  y="29" width="7"  height="3" rx="1" fill="#22c55e" opacity="0.4"/>
-  <!-- left edge -->
   <rect x="2"  y="3"  width="1.5" height="29" rx="0.75" fill="#475569"/>
 </svg>

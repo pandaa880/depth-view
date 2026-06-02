@@ -1,9 +1,9 @@
+import { RouterProvider } from '@tanstack/react-router';
+
+import { router } from './router';
+
 function App() {
-  return (
-    <section className="w-full h-screen flex justify-center items-center">
-      <h1 className="text-2xl">Depth View</h1>
-    </section>
-  )
+  return <RouterProvider router={router} />;
 }
 
 export default App;
