@@ -21,7 +21,7 @@ async function get<T>(
     );
   }
 
-  const res = await fetch(url.toString(), signal ? { signal } : undefined);
+  const res = await fetch(url.toString(), { signal });
 
   if (!res.ok) {
     const errorMessage = {
@@ -41,8 +41,8 @@ export const binanceRest = {
     get<ExchangeInfoResponse>('/api/v3/exchangeInfo', {
       symbols: JSON.stringify(tickerSymbols),
     }),
-  getDepthSnapshot: (symbol: string, limit = 1000) =>
-    get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }),
+  getDepthSnapshot: (symbol: string, limit = 1000, signal?: AbortSignal) =>
+    get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }, signal),
 
   getKlines: (
     symbol: string,
