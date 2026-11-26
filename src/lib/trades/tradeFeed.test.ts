@@ -220,6 +220,32 @@ describe('createTradeFeed', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an evicted old trade id without a duplicate publication', () => {
+    const stream = createStream();
+    const frame = createManualFrameTask();
+    const feed = createTradeFeed('BTCUSDT', {
+      subscribe: stream.subscribe,
+      frameTaskFactory: frame.factory,
+    });
+    const listener = vi.fn();
+    feed.subscribe(listener);
+    feed.start();
+
+    for (let id = 1; id <= 51; id += 1) {
+      stream.emit(tradeEvent(id));
+    }
+    frame.flush();
+    expect(feed.getTrades()).toHaveLength(50);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    stream.emit(tradeEvent(1));
+    frame.flush();
+
+    expect(feed.getTrades()[0].id).toBe(51);
+    expect(feed.getTrades()).toHaveLength(50);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it('tears down its stream and frame work idempotently on stop', () => {
     const stream = createStream();
     const frame = createManualFrameTask();

@@ -50,6 +50,7 @@ export function createTradeFeed(
   let trades: readonly TradeView[] = EMPTY_TRADES;
   let pending: TradeView[] = [];
   let seenIds = new Set<number>();
+  let highestTradeId: number | null = null;
   let unsubscribeStream: (() => void) | null = null;
   let started = false;
 
@@ -91,8 +92,10 @@ export function createTradeFeed(
   function handleMessage(data: unknown): void {
     if (!started || !isTradeEvent(data)) return;
     if (data.s.toUpperCase() !== symbol.toUpperCase()) return;
-    if (seenIds.has(data.t)) return;
+    // Trade ids are monotonic per symbol. Older ids are replays, not new tape rows.
+    if (highestTradeId !== null && data.t <= highestTradeId) return;
 
+    highestTradeId = data.t;
     seenIds.add(data.t);
     pending.push({
       id: data.t,
@@ -127,6 +130,7 @@ export function createTradeFeed(
     pending = [];
     trades = EMPTY_TRADES;
     seenIds.clear();
+    highestTradeId = null;
 
     const unsubscribe = unsubscribeStream;
     unsubscribeStream = null;
