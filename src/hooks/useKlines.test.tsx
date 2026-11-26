@@ -480,6 +480,17 @@ describe('useKlines', () => {
     expect(result.current.status).toBe('error');
     expect(result.current.error).toBeTypeOf('string');
     expect(result.current.retry).toBeTypeOf('function');
+    expect(fetchKlines).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      handler?.(klineEvent('BTCUSDT', '1m', START_TIME + 28 * 60, '103'));
+      flushFrame?.();
+      handler?.(klineEvent('BTCUSDT', '1m', START_TIME + 30 * 60, '104'));
+      flushFrame?.();
+    });
+
+    expect(fetchKlines).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('error');
   });
 
   it('tears down the fetch, socket and frame task on unmount', async () => {

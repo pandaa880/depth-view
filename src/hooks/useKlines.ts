@@ -142,6 +142,7 @@ export function useKlines(
     let disposed = false;
     let loaded = false;
     let resyncing = false;
+    let failed = false;
     let needsResync = isDisconnectedStatus(dependencies.getStatus());
     let candles: Candle[] = [];
     const pending = new Map<number, Candle>();
@@ -162,6 +163,7 @@ export function useKlines(
     }
 
     function publish(updateKind: KlineUpdateKind): void {
+      failed = false;
       const series = buildKlineSeries(candles);
       setState({
         key,
@@ -184,6 +186,7 @@ export function useKlines(
     }
 
     function publishError(message: string, keepVisible: boolean): void {
+      failed = true;
       const series = keepVisible
         ? buildKlineSeries(candles)
         : { candles: EMPTY_CANDLES, ema: EMPTY_EMA };
@@ -199,7 +202,10 @@ export function useKlines(
     }
 
     function flushPending(): void {
-      if (disposed || !loaded || resyncing || pending.size === 0) return;
+      // A failed resync stays an error until retry, remount, or real reconnect.
+      if (disposed || !loaded || resyncing || failed || pending.size === 0) {
+        return;
+      }
 
       const updates = Array.from(pending.values()).sort(
         (left, right) => left.time - right.time,
@@ -243,6 +249,7 @@ export function useKlines(
       activeFetch = controller;
 
       if (mode === 'resync') {
+        failed = false;
         resyncing = true;
         publishStale();
       }
