@@ -11,6 +11,7 @@ const tickerSymbols = ['SOLUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
 async function get<T>(
   path: string,
   params?: Record<string, string | number>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const url = new URL(BASE_URL + path);
 
@@ -20,7 +21,7 @@ async function get<T>(
     );
   }
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), signal ? { signal } : undefined);
 
   if (!res.ok) {
     const errorMessage = {
@@ -43,6 +44,11 @@ export const binanceRest = {
   getDepthSnapshot: (symbol: string, limit = 1000) =>
     get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }),
 
-  getKlines: (symbol: string, interval: string, limit = 500) =>
-    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }),
+  getKlines: (
+    symbol: string,
+    interval: string,
+    limit = 500,
+    signal?: AbortSignal,
+  ) =>
+    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }, signal),
 };
