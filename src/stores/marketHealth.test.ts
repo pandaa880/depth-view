@@ -81,21 +81,94 @@ describe('scoped health actions', () => {
     expect(store.getState().book.lastMessageAt).toBeNull();
   });
 
-  it('records messages in one-second windows', () => {
+  it('publishes the previous complete second at a boundary', () => {
     const store = createMarketHealthStore();
     const before = store.getState();
     before.updateGlobal({ isStale: true });
 
-    store.getState().recordGlobalMessage(1000);
-    store.getState().recordGlobalMessage(1999);
-    expect(store.getState().global.messagesPerSecond).toBe(2);
-    expect(store.getState().global.lastMessageAt).toBe(1999);
+    for (let index = 0; index < 50; index += 1) {
+      store.getState().recordGlobalMessage(1000 + index);
+    }
+
+    expect(store.getState().global.messagesPerSecond).toBe(0);
+    expect(store.getState().global.lastMessageAt).toBe(1049);
     expect(store.getState().global.isStale).toBe(false);
     expect(store.getState().book).toBe(before.book);
 
     store.getState().recordGlobalMessage(2000);
-    expect(store.getState().global.messagesPerSecond).toBe(1);
+    expect(store.getState().global.messagesPerSecond).toBe(50);
     expect(store.getState().global.lastMessageAt).toBe(2000);
+
+    store.getState().recordGlobalMessage(2100);
+    expect(store.getState().global.messagesPerSecond).toBe(50);
+  });
+
+  it('samples the previous complete second without a message', () => {
+    const store = createMarketHealthStore();
+
+    for (let index = 0; index < 50; index += 1) {
+      store.getState().recordGlobalMessage(1000 + index);
+    }
+
+    store.getState().sampleGlobalMessages(2000);
+    const afterSample = store.getState();
+    expect(afterSample.global.messagesPerSecond).toBe(50);
+
+    store.getState().sampleGlobalMessages(2000);
+    expect(store.getState().global).toBe(afterSample.global);
+
+    store.getState().sampleGlobalMessages(3000);
+    expect(store.getState().global.messagesPerSecond).toBe(0);
+  });
+
+  it('decays to zero after a full second of silence', () => {
+    const store = createMarketHealthStore();
+
+    store.getState().recordGlobalMessage(1000);
+    store.getState().recordGlobalMessage(1200);
+    store.getState().sampleGlobalMessages(2000);
+    expect(store.getState().global.messagesPerSecond).toBe(2);
+
+    store.getState().sampleGlobalMessages(4000);
+    expect(store.getState().global.messagesPerSecond).toBe(0);
+
+    store.getState().recordGlobalMessage(4100);
+    expect(store.getState().global.messagesPerSecond).toBe(0);
+    store.getState().sampleGlobalMessages(5000);
+    expect(store.getState().global.messagesPerSecond).toBe(1);
+  });
+
+  it('ignores late messages and samples without moving backwards', () => {
+    const store = createMarketHealthStore();
+
+    store.getState().recordGlobalMessage(1000);
+    store.getState().recordGlobalMessage(1200);
+    store.getState().recordGlobalMessage(1400);
+    store.getState().recordGlobalMessage(900);
+
+    expect(store.getState().global.messagesPerSecond).toBe(0);
+    expect(store.getState().global.lastMessageAt).toBe(1400);
+
+    store.getState().sampleGlobalMessages(2000);
+    expect(store.getState().global.messagesPerSecond).toBe(3);
+
+    store.getState().sampleGlobalMessages(1500);
+    expect(store.getState().global.messagesPerSecond).toBe(3);
+  });
+
+  it('keeps explicit global updates from corrupting later counts', () => {
+    const store = createMarketHealthStore();
+
+    store.getState().updateGlobal({ messagesPerSecond: 999 });
+    store.getState().recordGlobalMessage(1000);
+    store.getState().recordGlobalMessage(1200);
+    store.getState().updateGlobal({ messagesPerSecond: 999 });
+    store.getState().recordGlobalMessage(1400);
+
+    expect(store.getState().global.messagesPerSecond).toBe(999);
+
+    store.getState().sampleGlobalMessages(2000);
+    expect(store.getState().global.messagesPerSecond).toBe(3);
   });
 
   it('increments book gaps atomically and marks the book stale', () => {

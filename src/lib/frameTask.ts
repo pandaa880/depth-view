@@ -13,24 +13,47 @@ export interface FrameTask {
 
 const FALLBACK_DELAY = 250;
 
+type AnimationFrameGlobal = {
+  requestAnimationFrame?: (callback: () => void) => number;
+  cancelAnimationFrame?: (handle: number) => void;
+};
+
+type TimerGlobal = {
+  setTimeout: (callback: () => void, delay: number) => number;
+  clearTimeout: (handle: number) => void;
+};
+
+function defaultRequestFrame(callback: () => void): number {
+  const frameGlobal = globalThis as unknown as AnimationFrameGlobal;
+  if (typeof frameGlobal.requestAnimationFrame !== 'function') {
+    throw new TypeError('requestAnimationFrame is unavailable');
+  }
+  return frameGlobal.requestAnimationFrame(callback);
+}
+
+function defaultCancelFrame(handle: number): void {
+  const frameGlobal = globalThis as unknown as AnimationFrameGlobal;
+  if (typeof frameGlobal.cancelAnimationFrame === 'function') {
+    frameGlobal.cancelAnimationFrame(handle);
+  }
+}
+
+function defaultSetTimeout(callback: () => void, delay: number): number {
+  return (globalThis as unknown as TimerGlobal).setTimeout(callback, delay);
+}
+
+function defaultClearTimeout(handle: number): void {
+  (globalThis as unknown as TimerGlobal).clearTimeout(handle);
+}
+
 export function createFrameTask(
   callback: () => void,
   options: FrameTaskOptions = {},
 ): FrameTask {
-  const requestFrame =
-    options.requestAnimationFrame ??
-    ((next: () => void) => globalThis.requestAnimationFrame(next));
-  const cancelFrame =
-    options.cancelAnimationFrame ??
-    ((handle: number) => globalThis.cancelAnimationFrame(handle));
-  const scheduleTimeout =
-    options.setTimeout ??
-    ((next: () => void, delay: number) =>
-      window.setTimeout(next, delay));
-  const cancelTimeout =
-    options.clearTimeout ??
-    ((handle: number) =>
-      window.clearTimeout(handle));
+  const requestFrame = options.requestAnimationFrame ?? defaultRequestFrame;
+  const cancelFrame = options.cancelAnimationFrame ?? defaultCancelFrame;
+  const scheduleTimeout = options.setTimeout ?? defaultSetTimeout;
+  const cancelTimeout = options.clearTimeout ?? defaultClearTimeout;
 
   let pending = false;
   let frameHandle: number | null = null;
@@ -60,8 +83,20 @@ export function createFrameTask(
       if (pending) return;
 
       pending = true;
-      frameHandle = requestFrame(() => invoke('frame'));
-      timeoutHandle = scheduleTimeout(() => invoke('timeout'), FALLBACK_DELAY);
+      try {
+        frameHandle = requestFrame(() => invoke('frame'));
+        timeoutHandle = scheduleTimeout(
+          () => invoke('timeout'),
+          FALLBACK_DELAY,
+        );
+      } catch (error) {
+        pending = false;
+        if (frameHandle !== null) cancelFrame(frameHandle);
+        if (timeoutHandle !== null) cancelTimeout(timeoutHandle);
+        frameHandle = null;
+        timeoutHandle = null;
+        throw error;
+      }
     },
     flush() {
       invoke('flush');
