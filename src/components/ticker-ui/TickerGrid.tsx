@@ -1,21 +1,45 @@
 import { useShallow } from 'zustand/react/shallow';
 
-import { useExchangeInfoStore } from '../../stores/globalStore';
-
+import { DEFAULT_SYMBOLS } from '../../config/markets';
+import { useExchangeInfoStore, useTickerStore } from '../../stores/globalStore';
 import { TickerCard } from './TickerCard';
 
 export const TickerGrid = () => {
   const symbols = useExchangeInfoStore(
-    useShallow((state) => Object.keys(state.symbolInfo)),
+    useShallow((state) =>
+      DEFAULT_SYMBOLS.filter((symbol) => state.symbolInfo[symbol]),
+    ),
+  );
+  const hasTicker = useTickerStore((state) =>
+    DEFAULT_SYMBOLS.some((symbol) => state.tickers[symbol] !== undefined),
   );
 
-  const renderTickerCards = () => {
-    return symbols.map((s) => (
-      <div key={s} className="mx-4 min-w-40">
-        <TickerCard symbol={s} />
+  if (symbols.length === 0) {
+    return (
+      <div className="market-empty" role="status">
+        No selected USDT pairs are available in exchange information.
       </div>
-    ));
-  };
+    );
+  }
 
-  return <div className="w-full flex">{renderTickerCards()}</div>;
+  return (
+    <>
+      {!hasTicker && (
+        <p className="sr-only" role="status">
+          Waiting for live ticker data.
+        </p>
+      )}
+      <ul
+        className="ticker-grid"
+        aria-label="Selected USDT spot markets"
+        aria-busy={!hasTicker}
+      >
+        {symbols.map((symbol) => (
+          <li className="ticker-grid-item" key={symbol}>
+            <TickerCard symbol={symbol} />
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 };
