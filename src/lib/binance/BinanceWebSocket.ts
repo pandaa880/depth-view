@@ -1,5 +1,16 @@
-// connection to binance stream url
+import { useMarketHealthStore } from '../../stores/marketHealth';
+
+// single multiplexed combined-stream endpoint
 const STREAM_URL = 'wss://stream.binance.com:9443/stream';
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+const DEFAULT_WATCHDOG_MS = 30_000;
+const MESSAGE_WINDOW_MS = 1_000;
+const MESSAGE_WINDOW_CAPACITY = 2_048;
+
+// numeric readyState values keep module import safe where WebSocket is absent
+const SOCKET_CONNECTING = 0;
+const SOCKET_OPEN = 1;
 
 export const CONNECTION_STATUS = {
   Uninstantiated: 'uninstantiated',
@@ -17,80 +28,256 @@ export type ConnectionStatus =
 type MessageHandler = (data: unknown) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 
+export type SocketFactory = (url: string) => WebSocket;
+type TimeoutHandle = unknown;
+
+export interface BinanceWebSocketTimers {
+  setTimeout?: (callback: () => void, delay: number) => TimeoutHandle;
+  clearTimeout?: (handle: TimeoutHandle) => void;
+}
+
+export interface ConnectionHealthPatch {
+  status: ConnectionStatus;
+  reconnectAttempt: number;
+  nextReconnectAt: number | null;
+  isStale?: boolean;
+}
+
+export interface BinanceWebSocketOptions extends BinanceWebSocketTimers {
+  socketFactory?: SocketFactory;
+  now?: () => number;
+  watchdogMs?: number;
+  publishHealth?: (patch: ConnectionHealthPatch) => void;
+}
+
+export interface ConnectionMetrics {
+  status: ConnectionStatus;
+  messagesPerSecond: number;
+  lastMessageAt: number | null;
+  reconnectAttempt: number;
+  nextReconnectAt: number | null;
+}
+
+type TimerGlobal = {
+  setTimeout: (callback: () => void, delay: number) => TimeoutHandle;
+  clearTimeout: (handle: TimeoutHandle) => void;
+};
+
+type WebSocketGlobal = {
+  WebSocket?: new (url: string) => WebSocket;
+};
+
+function defaultSocketFactory(url: string): WebSocket {
+  const socketCtor = (globalThis as unknown as WebSocketGlobal).WebSocket;
+  if (typeof socketCtor !== 'function') {
+    throw new TypeError('WebSocket is unavailable');
+  }
+  return new socketCtor(url);
+}
+
+function defaultSetTimeout(callback: () => void, delay: number): TimeoutHandle {
+  return (globalThis as unknown as TimerGlobal).setTimeout(callback, delay);
+}
+
+function defaultClearTimeout(handle: TimeoutHandle): void {
+  (globalThis as unknown as TimerGlobal).clearTimeout(handle);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+// SUBSCRIBE/UNSUBSCRIBE acks carry result:null and an id (which may be 0);
+// error replies carry code/msg. Neither is market data.
+function isControlResponse(parsed: Record<string, unknown>): boolean {
+  if (!('id' in parsed)) return false;
+  return 'result' in parsed || 'error' in parsed || 'code' in parsed;
+}
+
 export class BinanceWebSocketManager {
   private socket: WebSocket | null = null;
+  // incremented whenever the active socket is replaced or invalidated, so
+  // late open/message/close/error events from an old socket can be ignored
+  private socketGeneration = 0;
   private subscriptions: Map<string, Set<MessageHandler>> = new Map();
   private statusHandlers: Set<StatusHandler> = new Set();
   private status: ConnectionStatus = CONNECTION_STATUS.Uninstantiated;
-  private messageId: number = 1;
+  private messageId = 1;
 
-  private isIntentionallyDisconnected: boolean = false;
-  private reconnectAttempt: number = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private isIntentionallyDisconnected = false;
+  private isPaused = false;
+  private reconnectAttempt = 0;
+  private nextReconnectAt: number | null = null;
+  private reconnectTimer: TimeoutHandle | null = null;
+  private watchdogTimer: TimeoutHandle | null = null;
+  private lastMessageAt: number | null = null;
+  private messageWindow: number[] = [];
+  private visibilityHandler: (() => void) | null = null;
+  private visibilityCleanup: (() => void) | null = null;
 
-  // connect to url
+  private readonly socketFactory: SocketFactory;
+  private readonly scheduleTimeout: (
+    callback: () => void,
+    delay: number,
+  ) => TimeoutHandle;
+  private readonly cancelTimeout: (handle: TimeoutHandle) => void;
+  private readonly now: () => number;
+  private readonly watchdogMs: number;
+  private readonly healthPublisher: (patch: ConnectionHealthPatch) => void;
+
+  constructor(options: BinanceWebSocketOptions = {}) {
+    this.socketFactory = options.socketFactory ?? defaultSocketFactory;
+    this.scheduleTimeout = options.setTimeout ?? defaultSetTimeout;
+    this.cancelTimeout = options.clearTimeout ?? defaultClearTimeout;
+    this.now = options.now ?? (() => Date.now());
+    this.watchdogMs = options.watchdogMs ?? DEFAULT_WATCHDOG_MS;
+    this.healthPublisher = options.publishHealth ?? (() => {});
+  }
+
   connect(): void {
     this.isIntentionallyDisconnected = false;
+    this.isPaused = false;
+    this.clearReconnectTimer();
 
+    const current = this.socket;
     if (
-      this.socket &&
-      (this.socket.readyState === WebSocket.CONNECTING ||
-        this.socket.readyState === WebSocket.OPEN)
+      current &&
+      (current.readyState === SOCKET_CONNECTING ||
+        current.readyState === SOCKET_OPEN)
     ) {
       return;
     }
 
-    this.socket = new WebSocket(STREAM_URL);
+    if (current) {
+      // abandon a closing socket without letting its events reach the new one
+      this.socket = null;
+      this.socketGeneration += 1;
+    }
+
+    this.openSocket();
+  }
+
+  private openSocket(): void {
+    let socket: WebSocket;
+    try {
+      socket = this.socketFactory(STREAM_URL);
+    } catch {
+      this.setStatus(CONNECTION_STATUS.Disconnected);
+      this.scheduleReconnect();
+      return;
+    }
+
+    const generation = this.socketGeneration + 1;
+    this.socketGeneration = generation;
+    this.socket = socket;
     this.setStatus(CONNECTION_STATUS.Connecting);
 
-    this.socket.addEventListener('open', () => {
-      this.reconnectAttempt = 0;
-      this.setStatus(CONNECTION_STATUS.Open);
-
-      this.resubscribeAll();
+    socket.addEventListener('open', () => {
+      this.handleOpen(socket, generation);
     });
 
-    this.socket.addEventListener('message', (event) => {
-      const parsed = JSON.parse(event.data as string);
-
-      if (parsed.ping) {
-        this.socket?.send(JSON.stringify({ pong: parsed.ping }));
-        return;
-      }
-
-      // ignore ack message when subscribing to stream
-      if (parsed.result === null && parsed.id) return;
-
-      if (parsed.stream && parsed.data) {
-        this.subscriptions.get(parsed.stream)?.forEach((h) => h(parsed.data));
-      }
+    socket.addEventListener('message', (event) => {
+      this.handleMessage(socket, generation, event);
     });
 
-    this.socket.addEventListener('close', () => {
-      this.setStatus(CONNECTION_STATUS.Closed);
-      this.socket = null;
-
-      if (!this.isIntentionallyDisconnected) {
-        this.scheduleReconnect();
-      }
+    socket.addEventListener('close', () => {
+      this.handleClose(socket, generation);
     });
 
-    this.socket.addEventListener('error', () => {
-      this.setStatus(CONNECTION_STATUS.Disconnected);
+    socket.addEventListener('error', () => {
+      this.handleError(socket, generation);
     });
   }
 
-  disconnect(): void {
-    if (!this.socket) return;
+  private handleOpen(socket: WebSocket, generation: number): void {
+    if (!this.isActiveSocket(socket, generation)) return;
 
-    this.isIntentionallyDisconnected = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    this.reconnectAttempt = 0;
+    this.nextReconnectAt = null;
+    this.clearReconnectTimer();
+    this.setStatus(CONNECTION_STATUS.Open, { isStale: false });
+    this.resubscribeAll();
+    this.armWatchdog(socket, generation);
+  }
+
+  private handleMessage(
+    socket: WebSocket,
+    generation: number,
+    event: MessageEvent,
+  ): void {
+    if (!this.isActiveSocket(socket, generation)) return;
+
+    const timestamp = this.now();
+    this.lastMessageAt = timestamp;
+    this.recordMessage(timestamp);
+    // any traffic proves liveness, so the idle window restarts here
+    this.armWatchdog(socket, generation);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(event.data));
+    } catch {
+      return;
     }
 
-    this.socket.close();
+    if (!isRecord(parsed)) return;
+
+    if (parsed.ping !== undefined) {
+      if (this.isOpenSocket()) {
+        socket.send(JSON.stringify({ pong: parsed.ping }));
+      }
+      return;
+    }
+
+    if (isControlResponse(parsed)) return;
+
+    if (typeof parsed.stream === 'string' && 'data' in parsed) {
+      const handlers = this.subscriptions.get(parsed.stream);
+      if (!handlers) return;
+      for (const handler of handlers) handler(parsed.data);
+    }
+  }
+
+  private handleClose(socket: WebSocket, generation: number): void {
+    if (!this.isActiveSocket(socket, generation)) return;
+
     this.socket = null;
+    this.socketGeneration += 1;
+    this.clearWatchdogTimer();
+    this.nextReconnectAt = null;
+
+    if (this.isPaused || this.isIntentionallyDisconnected) {
+      this.setStatus(CONNECTION_STATUS.Closed);
+      return;
+    }
+
+    this.setStatus(CONNECTION_STATUS.Disconnected);
+    this.scheduleReconnect();
+  }
+
+  private handleError(socket: WebSocket, generation: number): void {
+    if (!this.isActiveSocket(socket, generation)) return;
+    // the close event drives reconnection; wait for it (watchdog covers hangs)
+    this.setStatus(CONNECTION_STATUS.Disconnected);
+  }
+
+  disconnect(): void {
+    this.isIntentionallyDisconnected = true;
+    this.isPaused = false;
+    this.clearReconnectTimer();
+    this.clearWatchdogTimer();
+
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      this.socketGeneration += 1;
+      try {
+        socket.close();
+      } catch {
+        // already closed sockets can throw in some runtimes
+      }
+    }
+
     this.setStatus(CONNECTION_STATUS.Closed);
   }
 
@@ -99,29 +286,47 @@ export class BinanceWebSocketManager {
   }
 
   scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
+    if (this.isIntentionallyDisconnected || this.isPaused) return;
+    if (this.reconnectTimer !== null) return;
+    if (this.hasLiveSocket()) return;
 
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30_000);
-    this.reconnectAttempt++;
-    this.setStatus(CONNECTION_STATUS.Reconnecting);
+    const attempt = this.reconnectAttempt + 1;
+    const delay = Math.min(
+      RECONNECT_BASE_MS * 2 ** (attempt - 1),
+      RECONNECT_MAX_MS,
+    );
+    this.reconnectAttempt = attempt;
+    this.nextReconnectAt = this.now() + delay;
 
-    this.reconnectTimer = setTimeout(() => {
+    this.reconnectTimer = this.scheduleTimeout(() => {
       this.reconnectTimer = null;
+      this.nextReconnectAt = null;
+      if (this.isIntentionallyDisconnected || this.isPaused) return;
       this.connect();
     }, delay);
+
+    this.setStatus(CONNECTION_STATUS.Reconnecting);
   }
 
-  // message handler
   subscribe(streamName: string, handler: MessageHandler): () => void {
-    if (!this.subscriptions.has(streamName)) {
-      this.subscriptions.set(streamName, new Set());
+    let handlers = this.subscriptions.get(streamName);
+    if (!handlers) {
+      handlers = new Set();
+      this.subscriptions.set(streamName, handlers);
       this.sendSubscribe(streamName);
     }
-    this.subscriptions.get(streamName)!.add(handler);
+    handlers.add(handler);
 
+    let active = true;
     return () => {
-      this.subscriptions.get(streamName)?.delete(handler);
-      if (this.subscriptions.get(streamName)?.size === 0) {
+      if (!active) return;
+      active = false;
+
+      const current = this.subscriptions.get(streamName);
+      if (!current) return;
+
+      current.delete(handler);
+      if (current.size === 0) {
         this.subscriptions.delete(streamName);
         this.sendUnsubscribe(streamName);
       }
@@ -129,92 +334,214 @@ export class BinanceWebSocketManager {
   }
 
   sendSubscribe(streamName: string): void {
-    if (this.status !== CONNECTION_STATUS.Open) return;
-
-    this.socket?.send(
-      JSON.stringify({
-        method: 'SUBSCRIBE',
-        params: [streamName],
-        id: this.messageId++,
-      }),
-    );
+    if (!this.isOpenSocket()) return;
+    this.sendRaw({
+      method: 'SUBSCRIBE',
+      params: [streamName],
+      id: this.messageId++,
+    });
   }
 
   sendUnsubscribe(streamName: string): void {
-    if (this.status !== CONNECTION_STATUS.Open) return;
-
-    this.socket?.send(
-      JSON.stringify({
-        method: 'UNSUBSCRIBE',
-        params: [streamName],
-        id: this.messageId++,
-      }),
-    );
+    if (!this.isOpenSocket()) return;
+    this.sendRaw({
+      method: 'UNSUBSCRIBE',
+      params: [streamName],
+      id: this.messageId++,
+    });
   }
 
   private resubscribeAll(): void {
     const streams = Array.from(this.subscriptions.keys());
     if (streams.length === 0) return;
 
-    this.socket?.send(
-      JSON.stringify({
-        method: 'SUBSCRIBE',
-        params: streams,
-        id: this.messageId++,
-      }),
-    );
+    this.sendRaw({
+      method: 'SUBSCRIBE',
+      params: streams,
+      id: this.messageId++,
+    });
+  }
+
+  private sendRaw(payload: unknown): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== SOCKET_OPEN) return;
+    socket.send(JSON.stringify(payload));
   }
 
   pause(): void {
-    if (!this.socket) return;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.socket.close();
+    this.isPaused = true;
+    this.clearReconnectTimer();
+    this.clearWatchdogTimer();
+
+    const socket = this.socket;
     this.socket = null;
+    if (socket) {
+      this.socketGeneration += 1;
+      try {
+        socket.close();
+      } catch {
+        // already closed sockets can throw in some runtimes
+      }
+    }
+
     this.setStatus(CONNECTION_STATUS.Closed);
-    // isIntentionallyDisconnected stays false
   }
 
   resume(): void {
-    const streams = Array.from(this.subscriptions.keys());
-    if (streams.length > 0) this.connect(); // resubscribeAll fires automatically on open
+    this.isPaused = false;
+    this.isIntentionallyDisconnected = false;
+    if (this.subscriptions.size === 0) return;
+    this.connect();
   }
 
-  // status change handler
   onStatusChange(handler: StatusHandler): () => void {
     this.statusHandlers.add(handler);
-
     return () => this.statusHandlers.delete(handler);
   }
 
-  // getter & setter for status
   getStatus(): ConnectionStatus {
     return this.status;
   }
 
-  private setStatus(status: ConnectionStatus): void {
-    this.status = status;
-    this.statusHandlers.forEach((handler) => handler(status));
+  getConnectionMetrics(): ConnectionMetrics {
+    const timestamp = this.now();
+    const cutoff = timestamp - MESSAGE_WINDOW_MS;
+
+    let kept = 0;
+    for (let index = 0; index < this.messageWindow.length; index += 1) {
+      const messageAt = this.messageWindow[index];
+      if (messageAt > cutoff) {
+        this.messageWindow[kept] = messageAt;
+        kept += 1;
+      }
+    }
+    this.messageWindow.length = kept;
+
+    return {
+      status: this.status,
+      messagesPerSecond: kept,
+      lastMessageAt: this.lastMessageAt,
+      reconnectAttempt: this.reconnectAttempt,
+      nextReconnectAt: this.nextReconnectAt,
+    };
   }
 
-  setupVisibilityHandler(): void {
-    document.addEventListener('visibilitychange', () => {
+  setupVisibilityHandler(): () => void {
+    if (typeof document === 'undefined') return () => {};
+    if (this.visibilityCleanup) return this.visibilityCleanup;
+
+    const handler = () => {
+      if (typeof document === 'undefined') return;
       if (document.hidden) {
-        // this.disconnect();
         this.pause();
-      } else {
-        const streams = Array.from(this.subscriptions.keys());
-        if (streams.length > 0) {
-          // this.connect();
-          this.resume();
-        }
+        return;
       }
+      if (this.isPaused) this.resume();
+    };
+
+    document.addEventListener('visibilitychange', handler);
+
+    const cleanup = () => {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handler);
+      }
+      if (this.visibilityHandler === handler) {
+        this.visibilityHandler = null;
+        this.visibilityCleanup = null;
+      }
+    };
+
+    this.visibilityHandler = handler;
+    this.visibilityCleanup = cleanup;
+    return cleanup;
+  }
+
+  private setStatus(
+    status: ConnectionStatus,
+    extra: Partial<ConnectionHealthPatch> = {},
+  ): void {
+    this.status = status;
+    this.statusHandlers.forEach((handler) => handler(status));
+    this.healthPublisher({
+      status: this.status,
+      reconnectAttempt: this.reconnectAttempt,
+      nextReconnectAt: this.nextReconnectAt,
+      ...extra,
     });
+  }
+
+  private isActiveSocket(socket: WebSocket, generation: number): boolean {
+    return this.socket === socket && this.socketGeneration === generation;
+  }
+
+  private isOpenSocket(): boolean {
+    return this.socket !== null && this.socket.readyState === SOCKET_OPEN;
+  }
+
+  private hasLiveSocket(): boolean {
+    const readyState = this.socket?.readyState;
+    return readyState === SOCKET_CONNECTING || readyState === SOCKET_OPEN;
+  }
+
+  private recordMessage(timestamp: number): void {
+    if (this.messageWindow.length >= MESSAGE_WINDOW_CAPACITY) {
+      this.messageWindow.shift();
+    }
+    this.messageWindow.push(timestamp);
+  }
+
+  private armWatchdog(socket: WebSocket, generation: number): void {
+    this.clearWatchdogTimer();
+    this.watchdogTimer = this.scheduleTimeout(() => {
+      this.handleWatchdog(socket, generation);
+    }, this.watchdogMs);
+  }
+
+  private handleWatchdog(socket: WebSocket, generation: number): void {
+    this.watchdogTimer = null;
+    if (!this.isActiveSocket(socket, generation)) return;
+
+    // detach before closing so the socket's own close/error cannot trigger a
+    // second reconnect flow for the same failure
+    this.socket = null;
+    this.socketGeneration += 1;
+    this.clearReconnectTimer();
+
+    try {
+      socket.close(4000, 'heartbeat timeout');
+    } catch {
+      // already closed sockets can throw in some runtimes
+    }
+
+    if (this.isPaused || this.isIntentionallyDisconnected) {
+      this.setStatus(CONNECTION_STATUS.Closed);
+      return;
+    }
+
+    this.setStatus(CONNECTION_STATUS.Disconnected, { isStale: true });
+    this.scheduleReconnect();
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      this.cancelTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.nextReconnectAt = null;
+  }
+
+  private clearWatchdogTimer(): void {
+    if (this.watchdogTimer !== null) {
+      this.cancelTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
   }
 }
 
-export const wsManager = new BinanceWebSocketManager();
+export const wsManager = new BinanceWebSocketManager({
+  publishHealth(patch) {
+    useMarketHealthStore.getState().updateGlobal(patch);
+  },
+});
 
 wsManager.setupVisibilityHandler();
