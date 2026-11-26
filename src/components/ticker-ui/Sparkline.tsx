@@ -1,40 +1,88 @@
-// map price history from mini ticker stream to x,y points to draw the line
-const buildPoints = (history: number[]): string => {
-  if (history.length < 2) return '';
+import { memo, useMemo } from 'react';
 
-  const min = Math.min(...history);
-  const max = Math.max(...history);
-  const range = max - min || 1;
+import type { MarketTone } from '../ui/Metric';
 
-  return history
-    .map((price, i) => {
-      const x = (i / (history.length - 1)) * 60;
-      const y = 18 - ((price - min) / range) * 18; // invert Y
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
+const WIDTH = 120;
+const HEIGHT = 36;
+const PADDING_Y = 3;
+
+const buildPoints = (history: readonly number[]): string => {
+  const prices = history.filter(Number.isFinite);
+  if (prices.length < 2) return '';
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min;
+  const usableHeight = HEIGHT - PADDING_Y * 2;
+
+  return prices
+    .map((price, index) => {
+      const x = (index / (prices.length - 1)) * WIDTH;
+      const y =
+        range === 0
+          ? HEIGHT / 2
+          : HEIGHT - PADDING_Y - ((price - min) / range) * usableHeight;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(' ');
 };
 
 type SparklineProps = {
-  history: number[];
-  color: string;
+  history: readonly number[];
+  symbol: string;
+  tone: MarketTone;
 };
 
-export const Sparkline = (props: SparklineProps) => {
-  const points = buildPoints(props.history);
-
-  if (!points) return <div style={{ height: 18 }} />;
+export const Sparkline = memo(function Sparkline({
+  history,
+  symbol,
+  tone,
+}: SparklineProps) {
+  const points = useMemo(() => buildPoints(history), [history]);
+  const hasHistory = points.length > 0;
+  const movement =
+    tone === 'up' ? 'rising' : tone === 'down' ? 'falling' : 'flat';
+  const label = hasHistory
+    ? `${symbol} recent price history, ${movement}`
+    : `${symbol} recent price history unavailable`;
 
   return (
-    <svg width="100%" height="18" viewBox="0 0 60 18">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={props.color}
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+    <svg
+      className="sparkline"
+      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={label}
+      data-up={tone === 'up' || undefined}
+      data-down={tone === 'down' || undefined}
+      data-flat={tone === 'flat' || undefined}
+    >
+      <title>{label}</title>
+      {hasHistory ? (
+        <polyline
+          className="sparkline-path"
+          points={points}
+          fill="none"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+          strokeDasharray={
+            tone === 'down' ? '5 3' : tone === 'flat' ? '1 3' : undefined
+          }
+        />
+      ) : (
+        <line
+          className="sparkline-baseline"
+          x1="0"
+          x2={WIDTH}
+          y1={HEIGHT / 2}
+          y2={HEIGHT / 2}
+          strokeWidth="1"
+          strokeDasharray="2 4"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   );
-};
+});
