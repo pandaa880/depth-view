@@ -43,6 +43,11 @@ export const binanceRest = {
   getDepthSnapshot: (symbol: string, limit = 1000, signal?: AbortSignal) =>
     get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }, signal),
 
-  getKlines: (symbol: string, interval: string, limit = 500) =>
-    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }),
+  getKlines: (
+    symbol: string,
+    interval: string,
+    limit = 500,
+    signal?: AbortSignal,
+  ) =>
+    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }, signal),
 };
