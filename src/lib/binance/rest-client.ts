@@ -1,3 +1,4 @@
+import { DEFAULT_SYMBOLS } from '../../config/markets';
 import type {
   ExchangeInfoResponse,
   DepthSnapshotResponse,
@@ -5,8 +6,6 @@ import type {
 } from './types';
 
 const BASE_URL: string = 'https://api.binance.com';
-
-const tickerSymbols = ['SOLUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
 
 async function get<T>(
   path: string,
@@ -39,7 +38,7 @@ async function get<T>(
 export const binanceRest = {
   getExchangeInfo: () =>
     get<ExchangeInfoResponse>('/api/v3/exchangeInfo', {
-      symbols: JSON.stringify(tickerSymbols),
+      symbols: JSON.stringify(DEFAULT_SYMBOLS),
     }),
   getDepthSnapshot: (symbol: string, limit = 1000, signal?: AbortSignal) =>
     get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }, signal),
