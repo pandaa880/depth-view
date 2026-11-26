@@ -145,4 +145,96 @@ describe('createFrameTask', () => {
     task.flush();
     expect(callback).toHaveBeenCalledTimes(1);
   });
+
+  it('recovers when requestAnimationFrame is initially unavailable', () => {
+    const frameHost = globalThis as unknown as {
+      requestAnimationFrame?: (callback: () => void) => number;
+      cancelAnimationFrame?: (handle: number) => void;
+    };
+    const originalRequest = frameHost.requestAnimationFrame;
+    const originalCancel = frameHost.cancelAnimationFrame;
+
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+    Reflect.deleteProperty(globalThis, 'cancelAnimationFrame');
+
+    try {
+      const callback = vi.fn();
+      const task = createFrameTask(callback);
+
+      expect(() => task.request()).toThrow(TypeError);
+
+      let queued: (() => void) | undefined;
+      frameHost.requestAnimationFrame = (next) => {
+        queued = next;
+        return 7;
+      };
+      const cancelled: number[] = [];
+      frameHost.cancelAnimationFrame = (handle) => cancelled.push(handle);
+
+      task.request();
+      expect(queued).toBeTypeOf('function');
+
+      queued?.();
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(cancelled).toEqual([]);
+
+      task.request();
+      expect(queued).toBeTypeOf('function');
+
+      task.cancel();
+      expect(cancelled).toEqual([7]);
+    } finally {
+      if (originalRequest === undefined) {
+        Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+      } else {
+        frameHost.requestAnimationFrame = originalRequest;
+      }
+      if (originalCancel === undefined) {
+        Reflect.deleteProperty(globalThis, 'cancelAnimationFrame');
+      } else {
+        frameHost.cancelAnimationFrame = originalCancel;
+      }
+    }
+  });
+
+  it('cancels scheduled work when the timeout scheduler throws', () => {
+    const frames = new Map<number, () => void>();
+    const cancelled: number[] = [];
+    let nextHandle = 1;
+    let timeoutAttempts = 0;
+
+    const options: FrameTaskOptions = {
+      requestAnimationFrame(callback) {
+        const handle = nextHandle++;
+        frames.set(handle, callback);
+        return handle;
+      },
+      cancelAnimationFrame(handle) {
+        cancelled.push(handle);
+        frames.delete(handle);
+      },
+      setTimeout() {
+        timeoutAttempts += 1;
+        if (timeoutAttempts === 1) {
+          throw new Error('timeout scheduler failed');
+        }
+        return nextHandle++;
+      },
+      clearTimeout() {},
+    };
+
+    const callback = vi.fn();
+    const task = createFrameTask(callback, options);
+
+    expect(() => task.request()).toThrow('timeout scheduler failed');
+    expect(cancelled).toEqual([1]);
+    expect(frames.size).toBe(0);
+
+    task.request();
+    expect(frames.size).toBe(1);
+    expect(timeoutAttempts).toBe(2);
+
+    task.flush();
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
 });
