@@ -1,0 +1,285 @@
+.orderbook .panel-body {
+  display: flex;
+  min-width: 0;
+}
+
+.ob-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ob-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--terminal-line);
+}
+
+.ob-state {
+  color: var(--terminal-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.ob-state[data-state='live'] {
+  color: var(--terminal-up);
+}
+
+.ob-state[data-state='syncing'],
+.ob-state[data-state='stale'] {
+  color: var(--terminal-warning);
+}
+
+.ob-state[data-state='error'] {
+  color: var(--terminal-down);
+}
+
+.ob-gaps {
+  color: var(--terminal-warning);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ob-ladders {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  min-width: 0;
+  background: var(--terminal-line);
+}
+
+.ob-ladder {
+  min-width: 0;
+  background: var(--terminal-panel);
+}
+
+.ob-side {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  margin: 0;
+  padding: 3px 10px 1px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.ob-side[data-side='bids'] {
+  color: var(--terminal-up);
+}
+
+.ob-side[data-side='asks'] {
+  color: var(--terminal-down);
+}
+
+.ob-grid {
+  min-width: 0;
+}
+
+.ob-head,
+.ob-row {
+  display: grid;
+  grid-template-columns: 44% 28% 28%;
+  align-items: center;
+  min-width: 0;
+}
+
+.ob-head {
+  border-bottom: 1px solid var(--terminal-line);
+}
+
+.ob-row {
+  position: relative;
+  height: 22px;
+  isolation: isolate;
+  contain: paint;
+}
+
+.ob-cell {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-head .ob-cell {
+  padding-inline: 4px;
+  color: var(--terminal-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  line-height: 20px;
+  text-transform: uppercase;
+}
+
+.ob-cell-qty,
+.ob-cell-total {
+  text-align: right;
+}
+
+.ob-row .ob-cell-price {
+  color: var(--terminal-text);
+}
+
+.ob-row[data-side='bids'] .ob-cell-price {
+  color: var(--terminal-up);
+}
+
+.ob-row[data-side='asks'] .ob-cell-price {
+  color: var(--terminal-down);
+}
+
+.ob-row .ob-cell-qty,
+.ob-row .ob-cell-total {
+  color: var(--terminal-secondary);
+}
+
+.ob-depth {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--terminal-up);
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.ob-row[data-side='asks'] .ob-depth {
+  background: var(--terminal-down);
+}
+
+.ob-row-blank .ob-depth {
+  display: none;
+}
+
+.ob-skeleton {
+  height: 7px;
+}
+
+.ob-skeleton-price {
+  width: 74%;
+}
+
+.ob-skeleton-qty {
+  width: 58%;
+  margin-left: auto;
+}
+
+.ob-skeleton-total {
+  width: 66%;
+  margin-left: auto;
+}
+
+.ob-summary {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  margin-top: auto;
+  padding: 5px 10px;
+  border-top: 1px solid var(--terminal-line);
+  background: var(--terminal-panel);
+}
+
+.ob-summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ob-summary-item:last-child {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.ob-summary-label {
+  flex: none;
+  color: var(--terminal-faint);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.ob-summary-value {
+  color: var(--terminal-text);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ob-summary-bps {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 30rem) {
+  .ob-toolbar {
+    padding-inline: 8px;
+  }
+
+  .ob-side {
+    padding-inline: 8px;
+  }
+
+  .ob-cell {
+    padding-inline: 3px;
+    font-size: 10px;
+  }
+
+  .ob-head .ob-cell {
+    padding-inline: 3px;
+    font-size: 7.5px;
+  }
+
+  .ob-summary {
+    gap: 10px;
+    padding-inline: 8px;
+  }
+
+  .ob-summary-label {
+    font-size: 8px;
+  }
+
+  .ob-summary-value {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 22rem) {
+  .ob-head,
+  .ob-row {
+    grid-template-columns: 42% 29% 29%;
+  }
+
+  .ob-cell {
+    padding-inline: 2px;
+    font-size: 9.5px;
+  }
+
+  .ob-side {
+    font-size: 8px;
+  }
+}
