@@ -4,9 +4,10 @@ import {
   addDecimal,
   compareDecimal,
   decimalRatio,
+  isDecimalString,
   multiplyDecimal,
   normalizeDecimal,
-  ratioToPercent,
+  ratioToFraction,
   subtractDecimal,
 } from './decimal';
 
@@ -51,6 +52,50 @@ describe('normalizeDecimal', () => {
       expect(() => normalizeDecimal(input as unknown as string)).toThrow(
         TypeError,
       );
+    },
+  );
+});
+
+describe('isDecimalString', () => {
+  it.each([
+    '0',
+    '-0',
+    '000123',
+    '001.2300',
+    '-000.001200',
+    '64000.0000000100',
+    '0.00000001',
+    '-1.5',
+  ])('accepts finite decimal string %s', (input) => {
+    expect(isDecimalString(input)).toBe(true);
+  });
+
+  it.each([
+    '',
+    ' ',
+    ' 1',
+    '1 ',
+    '1\n',
+    '1\r\n',
+    '1\u0000',
+    '+1',
+    '.5',
+    '1.',
+    '--1',
+    '1.2.3',
+    '1e3',
+    '1E-8',
+    'NaN',
+    'Infinity',
+    '-Infinity',
+  ])('rejects malformed string %s', (input) => {
+    expect(isDecimalString(input)).toBe(false);
+  });
+
+  it.each([null, undefined, 1, Number.NaN, {}, []])(
+    'rejects non-string input %s',
+    (input) => {
+      expect(isDecimalString(input)).toBe(false);
     },
   );
 });
@@ -129,31 +174,31 @@ describe('decimalRatio', () => {
   });
 });
 
-describe('ratioToPercent', () => {
+describe('ratioToFraction', () => {
   it('returns bounded ratios for CSS visualization', () => {
-    expect(ratioToPercent('1', '2')).toBe(0.5);
-    expect(ratioToPercent('1', '3')).toBe(0.3333333333333333);
-    expect(ratioToPercent('-1', '-2')).toBe(0.5);
-    expect(ratioToPercent('-1', '2')).toBe(0);
-    expect(ratioToPercent('2', '1')).toBe(1);
+    expect(ratioToFraction('1', '2')).toBe(0.5);
+    expect(ratioToFraction('1', '3')).toBe(0.3333333333333333);
+    expect(ratioToFraction('-1', '-2')).toBe(0.5);
+    expect(ratioToFraction('-1', '2')).toBe(0);
+    expect(ratioToFraction('2', '1')).toBe(1);
   });
 
   it('returns zero for a zero denominator', () => {
-    expect(ratioToPercent('1', '0')).toBe(0);
-    expect(ratioToPercent('1', '-0.000')).toBe(0);
+    expect(ratioToFraction('1', '0')).toBe(0);
+    expect(ratioToFraction('1', '-0.000')).toBe(0);
   });
 
   it('clamps exactly beyond the maximum safe integer', () => {
-    expect(ratioToPercent('9007199254740993', '9007199254740992')).toBe(1);
-    const ratio = ratioToPercent('9007199254740992', '9007199254740993');
+    expect(ratioToFraction('9007199254740993', '9007199254740992')).toBe(1);
+    const ratio = ratioToFraction('9007199254740992', '9007199254740993');
     expect(Number.isFinite(ratio)).toBe(true);
     expect(ratio).toBeGreaterThanOrEqual(0);
     expect(ratio).toBeLessThanOrEqual(1);
   });
 
   it('stays finite for extremely small and large decimal strings', () => {
-    const small = ratioToPercent('1', '1000000000000000000000000000000');
-    const large = ratioToPercent('1000000000000000000000000000000', '1');
+    const small = ratioToFraction('1', '1000000000000000000000000000000');
+    const large = ratioToFraction('1000000000000000000000000000000', '1');
     expect(small).toBe(0);
     expect(large).toBe(1);
   });

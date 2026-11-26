@@ -48,7 +48,9 @@ describe('isDepthUpdateEvent', () => {
     for (const id of [-1, 1.5, Number.NaN, 9007199254740992, '100']) {
       expect(isDepthUpdateEvent({ ...validDepth(), [key]: id })).toBe(false);
     }
-    expect(isDepthUpdateEvent({ ...validDepth(), [key]: 0 })).toBe(true);
+    expect(isDepthUpdateEvent({ ...validDepth(), [key]: 0, U: 0, u: 0 })).toBe(
+      true,
+    );
   });
 
   it('validates event fields and every price level', () => {
@@ -61,6 +63,47 @@ describe('isDepthUpdateEvent', () => {
       false,
     );
     expect(isDepthUpdateEvent({ ...validDepth(), a: [null] })).toBe(false);
+  });
+
+  it('requires finite decimal strings for depth prices and quantities', () => {
+    const malformed = [
+      '',
+      ' ',
+      '1 ',
+      '1\n',
+      '+1',
+      '.5',
+      '1.',
+      '1e3',
+      'NaN',
+      'abc',
+    ];
+
+    for (const value of malformed) {
+      expect(isDepthUpdateEvent({ ...validDepth(), b: [[value, '1']] })).toBe(
+        false,
+      );
+      expect(isDepthUpdateEvent({ ...validDepth(), b: [['1', value]] })).toBe(
+        false,
+      );
+      expect(isDepthUpdateEvent({ ...validDepth(), a: [[value, value]] })).toBe(
+        false,
+      );
+    }
+
+    expect(
+      isDepthUpdateEvent({
+        ...validDepth(),
+        b: [['0', '0']],
+        a: [['0.00000000', '100']],
+      }),
+    ).toBe(true);
+  });
+
+  it('requires U to be less than or equal to u', () => {
+    expect(isDepthUpdateEvent({ ...validDepth(), U: 102, u: 101 })).toBe(false);
+    expect(isDepthUpdateEvent({ ...validDepth(), U: 5, u: 5 })).toBe(true);
+    expect(isDepthUpdateEvent({ ...validDepth(), U: 0, u: 0 })).toBe(true);
   });
 });
 
@@ -88,6 +131,29 @@ describe('isTradeEvent', () => {
     expect(isTradeEvent({ ...validTrade(), p: 1 })).toBe(false);
     expect(isTradeEvent({ ...validTrade(), q: undefined })).toBe(false);
     expect(isTradeEvent({ ...validTrade(), m: 'false' })).toBe(false);
+  });
+
+  it('requires finite decimal strings for trade price and quantity', () => {
+    const malformed = [
+      '',
+      ' ',
+      '1 ',
+      '1\n',
+      '+1',
+      '.5',
+      '1.',
+      '1e3',
+      'NaN',
+      'abc',
+    ];
+
+    for (const key of ['p', 'q']) {
+      for (const value of malformed) {
+        expect(isTradeEvent({ ...validTrade(), [key]: value })).toBe(false);
+      }
+    }
+
+    expect(isTradeEvent({ ...validTrade(), p: '0', q: '0' })).toBe(true);
   });
 
   it('accepts zero ids and timestamps', () => {

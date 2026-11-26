@@ -52,6 +52,12 @@ function alignDecimals(a: ParsedDecimal, b: ParsedDecimal): [bigint, bigint] {
   ];
 }
 
+export function isDecimalString(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = DECIMAL_PATTERN.exec(value);
+  return match !== null && match[0] === value;
+}
+
 export function normalizeDecimal(value: string): Decimal {
   const parsed = parseDecimal(value);
   return formatDecimal(parsed.value, parsed.scale);
@@ -114,7 +120,10 @@ export function decimalRatio(
   return formatDecimal(negative ? -quotient : quotient, digits);
 }
 
-export function ratioToPercent(numerator: string, denominator: string): number {
+export function ratioToFraction(
+  numerator: string,
+  denominator: string,
+): number {
   const top = parseDecimal(numerator);
   const bottom = parseDecimal(denominator);
   if (bottom.value === 0n || top.value === 0n) return 0;
