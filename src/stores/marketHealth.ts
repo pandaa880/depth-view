@@ -34,6 +34,7 @@ export interface MarketHealthStore {
   updateGlobal: (patch: Partial<FeedHealth>) => void;
   updateBook: (patch: Partial<FeedHealth>) => void;
   recordGlobalMessage: (timestamp: number) => void;
+  sampleGlobalMessages: (timestamp: number) => void;
   noteBookGap: () => void;
 }
 
@@ -56,56 +57,101 @@ function mergeFeedHealth(
 }
 
 export function createMarketHealthStore() {
-  let messageSecond: number | null = null;
-  let messagesInSecond = 0;
+  let observedSecond: number | null = null;
+  let observedCount = 0;
 
-  return create<MarketHealthStore>()((set) => ({
-    global: createFeedHealth(),
-    book: createFeedHealth(),
-
-    updateGlobal(patch) {
+  return create<MarketHealthStore>()((set, get) => {
+    function publishGlobal(patch: Partial<FeedHealth>): void {
       set((state) => {
         const global = mergeFeedHealth(state.global, patch);
         return global === state.global ? state : { global };
       });
-    },
+    }
 
-    updateBook(patch) {
-      set((state) => {
-        const book = mergeFeedHealth(state.book, patch);
-        return book === state.book ? state : { book };
-      });
-    },
+    function completeObservedSecond(nextSecond: number): number {
+      const previousSecond = observedSecond;
+      const completedCount =
+        previousSecond !== null && nextSecond === previousSecond + 1
+          ? observedCount
+          : 0;
+      observedSecond = nextSecond;
+      observedCount = 0;
+      return completedCount;
+    }
 
-    recordGlobalMessage(timestamp) {
-      const second = Math.floor(timestamp / 1000);
-      if (second === messageSecond) {
-        messagesInSecond += 1;
-      } else {
-        messageSecond = second;
-        messagesInSecond = 1;
-      }
+    return {
+      global: createFeedHealth(),
+      book: createFeedHealth(),
 
-      set((state) => ({
-        global: {
-          ...state.global,
-          messagesPerSecond: messagesInSecond,
-          lastMessageAt: timestamp,
-          isStale: false,
-        },
-      }));
-    },
+      updateGlobal(patch) {
+        publishGlobal(patch);
+      },
 
-    noteBookGap() {
-      set((state) => ({
-        book: {
-          ...state.book,
-          gapCount: state.book.gapCount + 1,
-          isStale: true,
-        },
-      }));
-    },
-  }));
+      updateBook(patch) {
+        set((state) => {
+          const book = mergeFeedHealth(state.book, patch);
+          return book === state.book ? state : { book };
+        });
+      },
+
+      recordGlobalMessage(timestamp) {
+        const second = Math.floor(timestamp / 1000);
+
+        if (observedSecond === null) {
+          observedSecond = second;
+          observedCount = 1;
+          publishGlobal({
+            messagesPerSecond: 0,
+            lastMessageAt: timestamp,
+            isStale: false,
+          });
+          return;
+        }
+
+        if (second > observedSecond) {
+          const completedCount = completeObservedSecond(second);
+          observedCount = 1;
+          publishGlobal({
+            messagesPerSecond: completedCount,
+            lastMessageAt: timestamp,
+            isStale: false,
+          });
+          return;
+        }
+
+        if (second === observedSecond) {
+          observedCount += 1;
+        }
+
+        const previousLastMessageAt = get().global.lastMessageAt;
+        const lastMessageAt =
+          previousLastMessageAt === null || timestamp > previousLastMessageAt
+            ? timestamp
+            : previousLastMessageAt;
+
+        publishGlobal({ lastMessageAt, isStale: false });
+      },
+
+      sampleGlobalMessages(timestamp) {
+        const second = Math.floor(timestamp / 1000);
+        if (observedSecond === null || second <= observedSecond) return;
+
+        publishGlobal({
+          messagesPerSecond: completeObservedSecond(second),
+        });
+      },
+
+      noteBookGap() {
+        set((state) => ({
+          book: {
+            ...state.book,
+            gapCount: state.book.gapCount + 1,
+            isStale: true,
+          },
+        }));
+      },
+    };
+  });
 }
 
 export const useMarketHealthStore = createMarketHealthStore();

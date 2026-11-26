@@ -1,3 +1,4 @@
+import { isDecimalString } from '../decimal';
 import type { DepthUpdateEvent, TradeEvent } from './types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -5,17 +6,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isNonnegativeSafeInteger(value: unknown): value is number {
-  return (
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-  );
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isLevel(value: unknown): value is [string, string] {
   return (
     Array.isArray(value) &&
     value.length === 2 &&
-    typeof value[0] === 'string' &&
-    typeof value[1] === 'string'
+    isDecimalString(value[0]) &&
+    isDecimalString(value[1])
   );
 }
 
@@ -23,9 +22,7 @@ function isLevelArray(value: unknown): value is [string, string][] {
   return Array.isArray(value) && value.every(isLevel);
 }
 
-export function isDepthUpdateEvent(
-  value: unknown,
-): value is DepthUpdateEvent {
+export function isDepthUpdateEvent(value: unknown): value is DepthUpdateEvent {
   return (
     isRecord(value) &&
     value.e === 'depthUpdate' &&
@@ -33,6 +30,7 @@ export function isDepthUpdateEvent(
     typeof value.s === 'string' &&
     isNonnegativeSafeInteger(value.U) &&
     isNonnegativeSafeInteger(value.u) &&
+    value.U <= value.u &&
     isLevelArray(value.b) &&
     isLevelArray(value.a)
   );
@@ -45,8 +43,8 @@ export function isTradeEvent(value: unknown): value is TradeEvent {
     isNonnegativeSafeInteger(value.E) &&
     typeof value.s === 'string' &&
     isNonnegativeSafeInteger(value.t) &&
-    typeof value.p === 'string' &&
-    typeof value.q === 'string' &&
+    isDecimalString(value.p) &&
+    isDecimalString(value.q) &&
     isNonnegativeSafeInteger(value.T) &&
     typeof value.m === 'boolean'
   );

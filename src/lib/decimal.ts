@@ -39,8 +39,7 @@ function formatDecimal(value: bigint, scale: number): Decimal {
     .toString()
     .padStart(scale + 1, '0');
   const integer = scale === 0 ? digits : digits.slice(0, -scale);
-  const fraction =
-    scale === 0 ? '' : digits.slice(-scale).replace(/0+$/, '');
+  const fraction = scale === 0 ? '' : digits.slice(-scale).replace(/0+$/, '');
 
   return `${negative ? '-' : ''}${integer}${fraction ? `.${fraction}` : ''}`;
 }
@@ -51,6 +50,12 @@ function alignDecimals(a: ParsedDecimal, b: ParsedDecimal): [bigint, bigint] {
     a.value * powerOfTen(scale - a.scale),
     b.value * powerOfTen(scale - b.scale),
   ];
+}
+
+export function isDecimalString(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = DECIMAL_PATTERN.exec(value);
+  return match !== null && match[0] === value;
 }
 
 export function normalizeDecimal(value: string): Decimal {
@@ -104,7 +109,9 @@ export function decimalRatio(
     throw new RangeError('Ratio denominator cannot be zero');
   }
 
-  const negative = (top.value < 0n) !== (bottom.value < 0n);
+  const negative =
+    (top.value < 0n && bottom.value > 0n) ||
+    (top.value > 0n && bottom.value < 0n);
   const [topValue, bottomValue] = alignDecimals(top, bottom);
   const quotient =
     ((topValue < 0n ? -topValue : topValue) * powerOfTen(digits)) /
@@ -113,13 +120,20 @@ export function decimalRatio(
   return formatDecimal(negative ? -quotient : quotient, digits);
 }
 
-export function ratioToPercent(numerator: string, denominator: string): number {
+export function ratioToFraction(
+  numerator: string,
+  denominator: string,
+): number {
   const top = parseDecimal(numerator);
   const bottom = parseDecimal(denominator);
   if (bottom.value === 0n || top.value === 0n) return 0;
 
   const [topValue, bottomValue] = alignDecimals(top, bottom);
-  if ((topValue < 0n) !== (bottomValue < 0n)) return 0;
+  if (
+    (topValue < 0n && bottomValue > 0n) ||
+    (topValue > 0n && bottomValue < 0n)
+  )
+    return 0;
 
   const absoluteTop = topValue < 0n ? -topValue : topValue;
   const absoluteBottom = bottomValue < 0n ? -bottomValue : bottomValue;
