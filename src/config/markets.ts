@@ -9,7 +9,7 @@ export const DEFAULT_SYMBOLS = [
   'AVAXUSDT',
   'LINKUSDT',
   'DOTUSDT',
-  'TONUSDT',
+  'SUIUSDT',
   'NEARUSDT',
   'LTCUSDT',
   'BCHUSDT',
