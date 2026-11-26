@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  boundKlineHistory,
   buildKlineSeries,
+  isContinuousKlineSeries,
+  klineIntervalSeconds,
   klineStreamName,
   KlineParseError,
   mergeCandleUpdate,
@@ -234,6 +237,39 @@ describe('mergeCandleUpdate', () => {
       [120, '3'],
       [180, '5'],
     ]);
+  });
+});
+
+describe('kline interval helpers', () => {
+  it('maps each timeframe to its interval in seconds', () => {
+    expect(klineIntervalSeconds('1m')).toBe(60);
+    expect(klineIntervalSeconds('5m')).toBe(300);
+    expect(klineIntervalSeconds('15m')).toBe(900);
+    expect(klineIntervalSeconds('1h')).toBe(3_600);
+    expect(klineIntervalSeconds('4h')).toBe(14_400);
+    expect(klineIntervalSeconds('1d')).toBe(86_400);
+  });
+
+  it('accepts continuous bars and rejects a skipped interval', () => {
+    const continuous = [candle(60, '1'), candle(120, '1'), candle(180, '1')];
+    const skipped = [candle(60, '1'), candle(180, '1')];
+
+    expect(isContinuousKlineSeries(continuous, '1m')).toBe(true);
+    expect(isContinuousKlineSeries(skipped, '1m')).toBe(false);
+    expect(isContinuousKlineSeries([], '1m')).toBe(true);
+  });
+
+  it('bounds history to the most recent 500 candles', () => {
+    const candles = Array.from({ length: 620 }, (_, index) =>
+      candle(60 * (index + 1), '1'),
+    );
+
+    const bounded = boundKlineHistory(candles);
+
+    expect(bounded).toHaveLength(500);
+    expect(bounded[0].time).toBe(60 * 121);
+    expect(bounded[499].time).toBe(60 * 620);
+    expect(boundKlineHistory(bounded)).toBe(bounded);
   });
 });
 

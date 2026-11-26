@@ -5,6 +5,15 @@ export const KLINE_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
 export type KlineTimeframe = (typeof KLINE_TIMEFRAMES)[number];
 export const KLINE_HISTORY_LIMIT = 500;
 
+export const KLINE_INTERVAL_SECONDS: Record<KlineTimeframe, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3_600,
+  '4h': 14_400,
+  '1d': 86_400,
+};
+
 export interface Candle {
   time: number;
   open: string;
@@ -138,6 +147,39 @@ export function klineStreamName(
   timeframe: KlineTimeframe,
 ): string {
   return `${symbol.toLowerCase()}@kline_${timeframe}`;
+}
+
+export function klineIntervalSeconds(timeframe: KlineTimeframe): number {
+  return KLINE_INTERVAL_SECONDS[timeframe];
+}
+
+/**
+ * Keeps the retained history bounded so frame work and EMA recomputation stay
+ * constant no matter how long the stream runs.
+ */
+export function boundKlineHistory(candles: Candle[]): Candle[] {
+  return candles.length > KLINE_HISTORY_LIMIT
+    ? candles.slice(-KLINE_HISTORY_LIMIT)
+    : candles;
+}
+
+/**
+ * A retained series is trustworthy only when every adjacent bar advances by
+ * exactly one interval. Missing intervals make the exact-decimal EMA invalid.
+ */
+export function isContinuousKlineSeries(
+  candles: readonly Candle[],
+  timeframe: KlineTimeframe,
+): boolean {
+  const interval = klineIntervalSeconds(timeframe);
+
+  for (let index = 1; index < candles.length; index += 1) {
+    if (candles[index].time - candles[index - 1].time !== interval) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function sameCandle(left: Candle, right: Candle): boolean {

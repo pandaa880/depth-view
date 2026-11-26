@@ -15,6 +15,22 @@ export function ChartStatusOverlay({
 }: ChartStatusOverlayProps) {
   if (status === 'ready') return null;
 
+  if (status === 'resyncing') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="pointer-events-none absolute top-3 right-3 z-10 flex items-center gap-1.5 rounded border border-border bg-background/80 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted"
+      >
+        <span
+          aria-hidden="true"
+          className="inline-block h-1.5 w-1.5 rounded-full bg-connection-in-progress motion-safe:animate-pulse"
+        />
+        Resyncing candles
+      </div>
+    );
+  }
+
   const isError = status === 'error';
 
   return (

@@ -26,8 +26,14 @@ function restRow(timeSeconds: number, close: string): unknown[] {
   ];
 }
 
-function payloadFor(closes: string[], startTime = START_TIME): unknown[] {
-  return closes.map((close, index) => restRow(startTime + index * 60, close));
+function payloadFor(
+  closes: string[],
+  startTime = START_TIME,
+  intervalSeconds = 60,
+): unknown[] {
+  return closes.map((close, index) =>
+    restRow(startTime + index * intervalSeconds, close),
+  );
 }
 
 function klineEvent(
@@ -220,14 +226,268 @@ describe('useKlines', () => {
 
     expect(result.current.candles[24].close).toBe('103');
     expect(result.current.candles).toHaveLength(25);
+    expect(result.current.updateKind).toBe('update');
     expect(result.current.ema[5]).toEqual({
       time: liveTime,
       value: '100.285714285714',
     });
   });
 
+  it('resyncs instead of fabricating a bar when the stream skips an interval', async () => {
+    const initial = payloadFor(Array.from({ length: 25 }, () => '100'));
+    const backfill = [
+      ...initial,
+      restRow(START_TIME + 25 * 60, '101'),
+      restRow(START_TIME + 26 * 60, '102'),
+    ];
+    const fetchKlines = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(backfill);
+    let handler: ((payload: unknown) => void) | null = null;
+    const subscribe = vi.fn(
+      (_stream: string, next: (payload: unknown) => void) => {
+        handler = next;
+        return vi.fn();
+      },
+    );
+    let flushFrame: (() => void) | null = null;
+    const createFrameTask = vi.fn((callback: () => void) => {
+      flushFrame = callback;
+      return frameTaskDouble();
+    });
+
+    const { result } = renderHook(() =>
+      useKlines('BTCUSDT', '1m', {
+        fetchKlines,
+        subscribe,
+        createFrameTask,
+      }),
+    );
+
+    await settle();
+    expect(result.current.status).toBe('ready');
+
+    act(() => {
+      handler?.(klineEvent('BTCUSDT', '1m', START_TIME + 26 * 60, '102'));
+      flushFrame?.();
+    });
+
+    expect(fetchKlines).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('resyncing');
+    expect(result.current.candles).toHaveLength(25);
+    expect(
+      result.current.candles.some(
+        (candle) => candle.time === START_TIME + 25 * 60,
+      ),
+    ).toBe(false);
+
+    await settle();
+
+    expect(result.current.status).toBe('ready');
+    expect(result.current.candles).toHaveLength(27);
+    expect(result.current.candles.map((candle) => candle.time)).toEqual(
+      Array.from({ length: 27 }, (_, index) => START_TIME + index * 60),
+    );
+  });
+
+  it('backfills on the next open after a disconnect and keeps stale candles visible', async () => {
+    const initial = payloadFor(Array.from({ length: 25 }, () => '100'));
+    const backfill = payloadFor(Array.from({ length: 30 }, () => '110'));
+    const fetchKlines = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(backfill);
+    let statusHandler: ((status: string) => void) | null = null;
+    const subscribeStatus = vi.fn((next: (status: string) => void) => {
+      statusHandler = next;
+      return vi.fn();
+    });
+    const createFrameTask = vi.fn(() => frameTaskDouble());
+
+    const { result } = renderHook(() =>
+      useKlines('BTCUSDT', '1m', {
+        fetchKlines,
+        subscribe: vi.fn(() => vi.fn()),
+        subscribeStatus,
+        getStatus: () => 'open',
+        createFrameTask,
+      }),
+    );
+
+    await settle();
+    expect(result.current.status).toBe('ready');
+
+    act(() => {
+      statusHandler?.('closed');
+    });
+
+    expect(result.current.status).toBe('resyncing');
+    expect(result.current.candles).toHaveLength(25);
+    expect(result.current.candles[0].close).toBe('100');
+    expect(fetchKlines).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      statusHandler?.('reconnecting');
+    });
+    expect(result.current.status).toBe('resyncing');
+
+    act(() => {
+      statusHandler?.('open');
+    });
+
+    expect(fetchKlines).toHaveBeenCalledTimes(2);
+    expect(fetchKlines).toHaveBeenLastCalledWith(
+      'BTCUSDT',
+      '1m',
+      500,
+      expect.any(AbortSignal),
+    );
+
+    await settle();
+
+    expect(result.current.status).toBe('ready');
+    expect(result.current.candles).toHaveLength(30);
+    expect(result.current.candles[0].close).toBe('110');
+
+    act(() => {
+      statusHandler?.('open');
+    });
+    expect(fetchKlines).toHaveBeenCalledTimes(2);
+  });
+
+  it('never lets an older fetch override a newer reconnect backfill', async () => {
+    const initial = deferred<unknown>();
+    const backfill = deferred<unknown>();
+    const fetchKlines = vi
+      .fn()
+      .mockReturnValueOnce(initial.promise)
+      .mockReturnValueOnce(backfill.promise);
+    let statusHandler: ((status: string) => void) | null = null;
+    const subscribeStatus = vi.fn((next: (status: string) => void) => {
+      statusHandler = next;
+      return vi.fn();
+    });
+    const createFrameTask = vi.fn(() => frameTaskDouble());
+
+    const { result } = renderHook(() =>
+      useKlines('BTCUSDT', '1m', {
+        fetchKlines,
+        subscribe: vi.fn(() => vi.fn()),
+        subscribeStatus,
+        getStatus: () => 'open',
+        createFrameTask,
+      }),
+    );
+
+    act(() => {
+      statusHandler?.('closed');
+      statusHandler?.('open');
+    });
+
+    await act(async () => {
+      backfill.resolve(payloadFor(Array.from({ length: 22 }, () => '200')));
+      await Promise.resolve();
+    });
+
+    expect(result.current.candles[0].close).toBe('200');
+    expect(result.current.status).toBe('ready');
+
+    await act(async () => {
+      initial.resolve(payloadFor(Array.from({ length: 22 }, () => '100')));
+      await Promise.resolve();
+    });
+
+    expect(result.current.candles[0].close).toBe('200');
+    expect(result.current.candles).toHaveLength(22);
+  });
+
+  it('retains only the most recent 500 candles as live bars arrive', async () => {
+    const initial = payloadFor(Array.from({ length: 500 }, () => '100'));
+    const fetchKlines = vi.fn().mockResolvedValue(initial);
+    let handler: ((payload: unknown) => void) | null = null;
+    const subscribe = vi.fn(
+      (_stream: string, next: (payload: unknown) => void) => {
+        handler = next;
+        return vi.fn();
+      },
+    );
+    let flushFrame: (() => void) | null = null;
+    const createFrameTask = vi.fn((callback: () => void) => {
+      flushFrame = callback;
+      return frameTaskDouble();
+    });
+
+    const { result } = renderHook(() =>
+      useKlines('BTCUSDT', '1m', {
+        fetchKlines,
+        subscribe,
+        createFrameTask,
+      }),
+    );
+
+    await settle();
+    expect(result.current.candles).toHaveLength(500);
+
+    const nextTime = START_TIME + 500 * 60;
+    act(() => {
+      handler?.(klineEvent('BTCUSDT', '1m', nextTime, '101'));
+      flushFrame?.();
+    });
+
+    expect(result.current.candles).toHaveLength(500);
+    expect(result.current.candles[0].time).toBe(START_TIME + 60);
+    expect(result.current.candles[499].time).toBe(nextTime);
+  });
+
+  it('exposes an error and retry when a resync is still discontinuous', async () => {
+    const initial = payloadFor(Array.from({ length: 25 }, () => '100'));
+    const discontinuous = [...initial, restRow(START_TIME + 27 * 60, '102')];
+    const fetchKlines = vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(discontinuous);
+    let handler: ((payload: unknown) => void) | null = null;
+    const subscribe = vi.fn(
+      (_stream: string, next: (payload: unknown) => void) => {
+        handler = next;
+        return vi.fn();
+      },
+    );
+    let flushFrame: (() => void) | null = null;
+    const createFrameTask = vi.fn((callback: () => void) => {
+      flushFrame = callback;
+      return frameTaskDouble();
+    });
+
+    const { result } = renderHook(() =>
+      useKlines('BTCUSDT', '1m', {
+        fetchKlines,
+        subscribe,
+        createFrameTask,
+      }),
+    );
+
+    await settle();
+
+    act(() => {
+      handler?.(klineEvent('BTCUSDT', '1m', START_TIME + 26 * 60, '101'));
+      flushFrame?.();
+    });
+
+    await settle();
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.error).toBeTypeOf('string');
+    expect(result.current.retry).toBeTypeOf('function');
+  });
+
   it('tears down the fetch, socket and frame task on unmount', async () => {
-    const payload = payloadFor(Array.from({ length: 21 }, () => '50'));
+    const payload = payloadFor(
+      Array.from({ length: 21 }, () => '50'),
+      START_TIME,
+      300,
+    );
     const fetchKlines = vi.fn().mockResolvedValue(payload);
     const unsubscribe = vi.fn();
     let handler: ((payload: unknown) => void) | null = null;
@@ -269,7 +529,11 @@ describe('useKlines', () => {
   });
 
   it('leaves exactly one subscription after a StrictMode effect replay', async () => {
-    const payload = payloadFor(Array.from({ length: 20 }, () => '10'));
+    const payload = payloadFor(
+      Array.from({ length: 20 }, () => '10'),
+      START_TIME,
+      900,
+    );
     const fetchKlines = vi.fn().mockResolvedValue(payload);
     const activeHandlers = new Set<(payload: unknown) => void>();
     const subscribe = vi.fn(

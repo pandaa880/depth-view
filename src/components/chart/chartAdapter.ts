@@ -10,7 +10,11 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 
-import type { Candle, EmaSeriesPoint } from '../../lib/indicators/klines';
+import {
+  KLINE_HISTORY_LIMIT,
+  type Candle,
+  type EmaSeriesPoint,
+} from '../../lib/indicators/klines';
 
 export interface ChartSeriesSnapshot {
   candles: readonly Candle[];
@@ -22,6 +26,7 @@ export interface ChartAdapter {
     snapshot: ChartSeriesSnapshot,
     options: { fitContent: boolean },
   ) => void;
+  updateSnapshot: (snapshot: ChartSeriesSnapshot) => void;
   destroy: () => void;
 }
 
@@ -136,27 +141,85 @@ export function createLightweightChart(container: HTMLElement): ChartAdapter {
   });
 
   let pricePrecision = -1;
+  let renderedCandleCount = 0;
+  let lastCandleTime: number | null = null;
+  let lastEmaTime: number | null = null;
+
+  function applyPricePrecision(precision: number): void {
+    if (precision === pricePrecision) return;
+
+    candleSeries.applyOptions({
+      priceFormat: {
+        type: 'price',
+        precision,
+        minMove: 10 ** -precision,
+      },
+    });
+    pricePrecision = precision;
+  }
+
+  function replaceData(snapshot: ChartSeriesSnapshot): void {
+    applyPricePrecision(inferPricePrecision(snapshot.candles));
+
+    candleSeries.setData(snapshot.candles.map(toCandleData));
+    emaSeries.setData(snapshot.ema.map(toLineData));
+
+    renderedCandleCount = snapshot.candles.length;
+    lastCandleTime = snapshot.candles.at(-1)?.time ?? null;
+    lastEmaTime = snapshot.ema.at(-1)?.time ?? null;
+  }
 
   return {
     replaceSnapshot(snapshot, options) {
-      const precision = inferPricePrecision(snapshot.candles);
-      if (precision !== pricePrecision) {
-        candleSeries.applyOptions({
-          priceFormat: {
-            type: 'price',
-            precision,
-            minMove: 10 ** -precision,
-          },
-        });
-        pricePrecision = precision;
-      }
-
-      candleSeries.setData(snapshot.candles.map(toCandleData));
-      emaSeries.setData(snapshot.ema.map(toLineData));
+      replaceData(snapshot);
 
       if (options.fitContent && snapshot.candles.length > 0) {
         chart.timeScale().fitContent();
       }
+    },
+
+    updateSnapshot(snapshot) {
+      const lastCandle = snapshot.candles.at(-1);
+      if (!lastCandle) return;
+
+      const previousCandleTime = lastCandleTime;
+      const changedCandles =
+        previousCandleTime === null
+          ? snapshot.candles
+          : snapshot.candles.filter(
+              (candle) => candle.time >= previousCandleTime,
+            );
+
+      if (changedCandles.length === 0) return;
+
+      const appended = changedCandles.filter(
+        (candle) =>
+          previousCandleTime === null || candle.time > previousCandleTime,
+      ).length;
+
+      // The retained window is capped, so drop the oldest bars by replacing
+      // the full series only when an append would push the canvas past it.
+      if (renderedCandleCount + appended > KLINE_HISTORY_LIMIT) {
+        replaceData(snapshot);
+        return;
+      }
+
+      applyPricePrecision(
+        Math.max(pricePrecision, inferPricePrecision(changedCandles)),
+      );
+      for (const candle of changedCandles) {
+        candleSeries.update(toCandleData(candle));
+      }
+
+      for (const point of snapshot.ema) {
+        if (lastEmaTime === null || point.time >= lastEmaTime) {
+          emaSeries.update(toLineData(point));
+          lastEmaTime = point.time;
+        }
+      }
+
+      renderedCandleCount += appended;
+      lastCandleTime = lastCandle.time;
     },
 
     destroy() {

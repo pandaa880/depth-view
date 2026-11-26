@@ -12,7 +12,10 @@ export interface CandlestickChartProps {
 
 export function CandlestickChart({ symbol }: CandlestickChartProps) {
   const [timeframe, setTimeframe] = useState<KlineTimeframe>('1m');
-  const { candles, ema, status, error, retry } = useKlines(symbol, timeframe);
+  const { candles, ema, status, updateKind, error, retry } = useKlines(
+    symbol,
+    timeframe,
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<ChartAdapter | null>(null);
@@ -40,9 +43,13 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
     if (!adapter) return;
 
     const shouldFit = fitPendingRef.current && candles.length > 0;
-    adapter.replaceSnapshot({ candles, ema }, { fitContent: shouldFit });
+    if (updateKind === 'update' && !shouldFit) {
+      adapter.updateSnapshot({ candles, ema });
+    } else {
+      adapter.replaceSnapshot({ candles, ema }, { fitContent: shouldFit });
+    }
     if (shouldFit) fitPendingRef.current = false;
-  }, [candles, ema]);
+  }, [candles, ema, updateKind]);
 
   const displaySymbol = symbol.toUpperCase();
 
