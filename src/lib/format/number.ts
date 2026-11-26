@@ -156,7 +156,7 @@ const COMPACT_UNITS = [
  * 1230000000 → "1.23B", 456700000 → "456.7M", 12300 → "12.3K",
  * 983.4 → "983.4". Uses exact decimal division on strings, then pads
  * and trims the fraction — no float intermediate, no exponent
- * notation. Defaults to one fraction digit; trailing zeros are trimmed
+ * notation. Defaults to two fraction digits; trailing zeros are trimmed
  * ("1.20B" renders as "1.2B"). Values below 1000 carry no suffix and
  * values at or beyond one trillion use the "T" suffix. Negative
  * magnitudes keep their sign. Missing or malformed input (including
@@ -165,7 +165,7 @@ const COMPACT_UNITS = [
  */
 export function formatCompact(
   raw: string | null | undefined,
-  maxFractionDigits = 1,
+  maxFractionDigits = 2,
 ): string {
   if (raw === null || raw === undefined) return MISSING_VALUE;
   if (

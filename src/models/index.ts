@@ -6,4 +6,7 @@ export type TickerData = {
   volume24h: string;
   priceHistory: number[];
   flashDirection: 'up' | 'down' | null;
+  highPrice?: string;
+  lowPrice?: string;
+  lastEventTime?: number;
 };

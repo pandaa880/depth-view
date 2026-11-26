@@ -91,26 +91,70 @@ describe('TickerCard', () => {
       act(() => setTicker(makeTicker({ priceChangePercent })));
 
       const change = container.querySelector('.ticker-change')!;
-      const sparkline = screen.getByRole('img');
-      for (const element of [change, sparkline]) {
-        expect(element.getAttribute('data-flat')).toBe('true');
-        expect(element.hasAttribute('data-up')).toBe(false);
-        expect(element.hasAttribute('data-down')).toBe(false);
-      }
+      expect(change.getAttribute('data-flat')).toBe('true');
+      expect(change.hasAttribute('data-up')).toBe(false);
+      expect(change.hasAttribute('data-down')).toBe(false);
       expect(change.textContent).toContain('0.00%');
       expect(change.textContent).not.toContain('+');
       expect(change.textContent).not.toContain('-');
     },
   );
 
-  it('announces unknown direction for nonfinite change with price history', () => {
+  it('keeps sparkline tone independent from the daily change', () => {
+    render(<TickerCard symbol="BTCUSDT" />);
+    act(() =>
+      setTicker(
+        makeTicker({
+          priceChangePercent: 2.5,
+          priceHistory: [102, 101, 100],
+        }),
+      ),
+    );
+
+    const change = document.querySelector('.ticker-change')!;
+    expect(change.getAttribute('data-up')).toBe('true');
+
+    const sparkline = screen.getByRole('img', {
+      name: 'BTCUSDT recent price history, falling',
+    });
+    expect(sparkline.getAttribute('data-down')).toBe('true');
+    expect(sparkline.hasAttribute('data-up')).toBe(false);
+    expect(sparkline.hasAttribute('data-flat')).toBe(false);
+  });
+
+  it('announces unknown direction for nonfinite change with rising history', () => {
     render(<TickerCard symbol="BTCUSDT" />);
     act(() => setTicker(makeTicker({ priceChangePercent: Number.NaN })));
 
     const sparkline = screen.getByRole('img', {
-      name: 'BTCUSDT recent price history, direction unknown',
+      name: 'BTCUSDT recent price history, rising',
     });
+    expect(sparkline.getAttribute('data-up')).toBe('true');
     expect(sparkline.hasAttribute('data-flat')).toBe(false);
+  });
+
+  it('reports flat and unavailable sparkline directions from history', () => {
+    render(<TickerCard symbol="BTCUSDT" />);
+    act(() =>
+      setTicker(
+        makeTicker({ priceChangePercent: -3, priceHistory: [5, 5, 5] }),
+      ),
+    );
+
+    const flat = screen.getByRole('img', {
+      name: 'BTCUSDT recent price history, flat',
+    });
+    expect(flat.getAttribute('data-flat')).toBe('true');
+    expect(flat.hasAttribute('data-up')).toBe(false);
+    expect(flat.hasAttribute('data-down')).toBe(false);
+
+    act(() => setTicker(makeTicker({ priceHistory: [101] })));
+    const unavailable = screen.getByRole('img', {
+      name: 'BTCUSDT recent price history unavailable',
+    });
+    expect(unavailable.hasAttribute('data-up')).toBe(false);
+    expect(unavailable.hasAttribute('data-down')).toBe(false);
+    expect(unavailable.hasAttribute('data-flat')).toBe(false);
   });
 
   it('remounts only the price for consecutive flashes and ignores unchanged prices', () => {

@@ -6,16 +6,23 @@ const WIDTH = 120;
 const HEIGHT = 36;
 const PADDING_Y = 3;
 
-const buildPoints = (history: readonly number[]): string => {
+type Trend = 'up' | 'down' | 'flat';
+
+type SparklineGeometry = {
+  points: string;
+  trend: Trend | null;
+};
+
+const buildGeometry = (history: readonly number[]): SparklineGeometry => {
   const prices = history.filter(Number.isFinite);
-  if (prices.length < 2) return '';
+  if (prices.length < 2) return { points: '', trend: null };
 
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const range = max - min;
   const usableHeight = HEIGHT - PADDING_Y * 2;
 
-  return prices
+  const points = prices
     .map((price, index) => {
       const x = (index / (prices.length - 1)) * WIDTH;
       const y =
@@ -25,32 +32,37 @@ const buildPoints = (history: readonly number[]): string => {
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(' ');
+
+  const first = prices[0];
+  const last = prices[prices.length - 1];
+  const trend: Trend = last > first ? 'up' : last < first ? 'down' : 'flat';
+
+  return { points, trend };
 };
 
 type SparklineProps = {
   history: readonly number[];
   symbol: string;
-  tone: MarketTone;
+  // Daily tone stays on the change label; the sparkline derives its own.
+  tone?: MarketTone;
+};
+
+const MOVEMENT_LABEL: Record<Trend, string> = {
+  up: 'rising',
+  down: 'falling',
+  flat: 'flat',
 };
 
 export const Sparkline = memo(function Sparkline({
   history,
   symbol,
-  tone,
 }: SparklineProps) {
-  const points = useMemo(() => buildPoints(history), [history]);
+  const { points, trend } = useMemo(() => buildGeometry(history), [history]);
   const hasHistory = points.length > 0;
-  const movement =
-    tone === 'up'
-      ? 'rising'
-      : tone === 'down'
-        ? 'falling'
-        : tone === 'flat'
-          ? 'flat'
-          : 'direction unknown';
-  const label = hasHistory
-    ? `${symbol} recent price history, ${movement}`
-    : `${symbol} recent price history unavailable`;
+  const label =
+    hasHistory && trend
+      ? `${symbol} recent price history, ${MOVEMENT_LABEL[trend]}`
+      : `${symbol} recent price history unavailable`;
 
   return (
     <svg
@@ -59,9 +71,9 @@ export const Sparkline = memo(function Sparkline({
       preserveAspectRatio="none"
       role="img"
       aria-label={label}
-      data-up={tone === 'up' || undefined}
-      data-down={tone === 'down' || undefined}
-      data-flat={tone === 'flat' || undefined}
+      data-up={trend === 'up' || undefined}
+      data-down={trend === 'down' || undefined}
+      data-flat={trend === 'flat' || undefined}
     >
       <title>{label}</title>
       {hasHistory ? (
@@ -74,7 +86,7 @@ export const Sparkline = memo(function Sparkline({
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
           strokeDasharray={
-            tone === 'down' ? '5 3' : tone === 'flat' ? '1 3' : undefined
+            trend === 'down' ? '5 3' : trend === 'flat' ? '1 3' : undefined
           }
         />
       ) : (

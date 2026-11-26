@@ -96,7 +96,7 @@ export const TickerCard = memo(function TickerCard({
         </span>
         <span>{text}</span>
       </div>
-      <Sparkline history={priceHistory} symbol={symbol} tone={tone} />
+      <Sparkline history={priceHistory} symbol={symbol} />
       <Metric
         className="ticker-volume"
         label="24h volume"

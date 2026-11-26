@@ -3,6 +3,7 @@ import type {
   ExchangeInfoResponse,
   DepthSnapshotResponse,
   KlineResponse,
+  Ticker24hrResponse,
 } from './types';
 
 const BASE_URL: string = 'https://api.binance.com';
@@ -45,4 +46,11 @@ export const binanceRest = {
 
   getKlines: (symbol: string, interval: string, limit = 500) =>
     get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }),
+
+  get24hrTickers: (symbols: readonly string[], signal?: AbortSignal) =>
+    get<Ticker24hrResponse[]>(
+      '/api/v3/ticker/24hr',
+      { symbols: JSON.stringify(symbols) },
+      signal,
+    ),
 };
