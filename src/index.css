@@ -648,11 +648,11 @@
   }
 
   .price-flash-up {
-    animation: price-up 460ms ease-out;
+    animation: price-up 200ms ease-out;
   }
 
   .price-flash-down {
-    animation: price-down 460ms ease-out;
+    animation: price-down 200ms ease-out;
   }
 
   .bootstrap-screen {

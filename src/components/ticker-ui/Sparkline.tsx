@@ -41,7 +41,13 @@ export const Sparkline = memo(function Sparkline({
   const points = useMemo(() => buildPoints(history), [history]);
   const hasHistory = points.length > 0;
   const movement =
-    tone === 'up' ? 'rising' : tone === 'down' ? 'falling' : 'flat';
+    tone === 'up'
+      ? 'rising'
+      : tone === 'down'
+        ? 'falling'
+        : tone === 'flat'
+          ? 'flat'
+          : 'direction unknown';
   const label = hasHistory
     ? `${symbol} recent price history, ${movement}`
     : `${symbol} recent price history unavailable`;

@@ -45,6 +45,7 @@ export const TickerCard = memo(function TickerCard({
   const {
     flashDirection,
     lastPrice,
+    prevPrice,
     priceChangePercent,
     priceHistory,
     volume24h,
@@ -60,6 +61,7 @@ export const TickerCard = memo(function TickerCard({
   const baseAsset = symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
   const formattedPrice = formatPrice(symbol, lastPrice);
   const formattedVolume = formatCompact(volume24h);
+  const hasPriceChange = prevPrice !== undefined && prevPrice !== lastPrice;
 
   return (
     <Link to="/symbol/$symbol" params={linkParams} className="ticker-card">
@@ -71,12 +73,13 @@ export const TickerCard = memo(function TickerCard({
         <span className="ticker-market-type">SPOT</span>
       </div>
       <data
+        key={lastPrice}
         value={lastPrice}
         className={cx(
           'ticker-price',
           'numeric',
-          flashDirection === 'up' && 'price-flash-up',
-          flashDirection === 'down' && 'price-flash-down',
+          hasPriceChange && flashDirection === 'up' && 'price-flash-up',
+          hasPriceChange && flashDirection === 'down' && 'price-flash-down',
         )}
       >
         {formattedPrice}
