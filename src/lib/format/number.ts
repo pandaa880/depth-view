@@ -234,26 +234,33 @@ function renderCompactRatio(
  * percent field arrives from the ticker feed as a number (not an
  * order-book price), so fixed-decimal string conversion via toFixed is
  * its formatting step.
- * Zero styling stays readable: a value of zero, negative zero, or any
- * value that rounds to 0.00 renders as "+0.00%" with an up arrow and
- * isPositive true — zero is never styled as negative. Non-finite input
- * (NaN/Infinity) gets the missing-value marker text.
+ * Values that round to 0.00% are flat, including a small negative input.
+ * Flat values have neutral text and never imply an upward or downward move.
+ * Non-finite input gets the missing-value marker text.
  */
 export function formatPercent(value: number): {
   text: string;
-  arrow: '▲' | '▼';
+  arrow: '▲' | '▼' | '→';
   isPositive: boolean;
+  isFlat: boolean;
 } {
   if (!Number.isFinite(value)) {
-    return { text: MISSING_VALUE, arrow: '▼', isPositive: false };
+    return {
+      text: MISSING_VALUE,
+      arrow: '→',
+      isPositive: false,
+      isFlat: false,
+    };
   }
 
   const absoluteText = Math.abs(value).toFixed(2);
-  const isPositive = absoluteText === '0.00' || value > 0;
+  const isFlat = absoluteText === '0.00';
+  const isPositive = value > 0;
 
   return {
-    text: `${isPositive ? '+' : '-'}${absoluteText}%`,
-    arrow: isPositive ? '▲' : '▼',
+    text: `${isFlat ? '' : isPositive ? '+' : '-'}${absoluteText}%`,
+    arrow: isFlat ? '→' : isPositive ? '▲' : '▼',
     isPositive,
+    isFlat,
   };
 }

@@ -172,39 +172,53 @@ describe('formatCompact', () => {
 });
 
 describe('formatPercent', () => {
-  it('keeps the ticker-card shape with signed text', () => {
+  it('keeps the signed shape for actual positive and negative values', () => {
     expect(formatPercent(12.3456)).toEqual({
       text: '+12.35%',
       arrow: '▲',
       isPositive: true,
+      isFlat: false,
     });
     expect(formatPercent(-4.567)).toEqual({
       text: '-4.57%',
       arrow: '▼',
       isPositive: false,
+      isFlat: false,
     });
   });
 
-  it('never styles zero as negative', () => {
-    expect(formatPercent(0)).toEqual({
-      text: '+0.00%',
-      arrow: '▲',
+  it('is flat with neutral text and arrow at zero', () => {
+    const flat = {
+      text: '0.00%',
+      arrow: '→',
+      isPositive: false,
+      isFlat: true,
+    };
+
+    expect(formatPercent(0)).toEqual(flat);
+    expect(formatPercent(-0)).toEqual(flat);
+    expect(formatPercent(-0.001)).toEqual(flat);
+  });
+
+  it('is flat but positive-flagged when actual input is positive', () => {
+    expect(formatPercent(0.004)).toEqual({
+      text: '0.00%',
+      arrow: '→',
       isPositive: true,
-    });
-    expect(formatPercent(-0)).toEqual({
-      text: '+0.00%',
-      arrow: '▲',
-      isPositive: true,
-    });
-    expect(formatPercent(-0.001)).toEqual({
-      text: '+0.00%',
-      arrow: '▲',
-      isPositive: true,
+      isFlat: true,
     });
   });
 
   it('marks non-finite input as missing', () => {
-    expect(formatPercent(Number.NaN).text).toBe('—');
-    expect(formatPercent(Number.POSITIVE_INFINITY).isPositive).toBe(false);
+    const missing = {
+      text: '—',
+      arrow: '→',
+      isPositive: false,
+      isFlat: false,
+    };
+
+    expect(formatPercent(Number.NaN)).toEqual(missing);
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toEqual(missing);
+    expect(formatPercent(Number.NEGATIVE_INFINITY)).toEqual(missing);
   });
 });
