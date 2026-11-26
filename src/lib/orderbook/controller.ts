@@ -238,7 +238,9 @@ class BookCoordinator implements OrderBookController {
       const result = applyNextDepthUpdate(this.book, event);
       if (result === 'gap') {
         this.recordGapAndSync();
-      } else {
+        return;
+      }
+      if (result === 'applied') {
         this.requestPublication(true);
       }
       return;

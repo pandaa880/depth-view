@@ -117,7 +117,11 @@ function updateSequence(book: MutableOrderBook, event: DepthUpdateEvent): void {
 export function applyNextDepthUpdate(
   book: MutableOrderBook,
   event: DepthUpdateEvent,
-): 'applied' | 'gap' {
+): 'applied' | 'ignored' | 'gap' {
+  if (book.lastUpdateId !== null && event.u <= book.lastUpdateId) {
+    return 'ignored';
+  }
+
   if (
     book.lastUpdateId === null ||
     event.u < event.U ||

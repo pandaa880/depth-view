@@ -67,6 +67,20 @@ describe('order-book sequence helpers', () => {
     expect(book.lastUpdateId).toBe(100);
   });
 
+  it('ignores a duplicate after the buffered snapshot bridge', () => {
+    const book = createOrderBook();
+    loadDepthSnapshot(book, snapshot(100));
+
+    expect(
+      reconcileBufferedDepthUpdates(book, [
+        update(100, 101),
+        update(100, 101),
+        update(102, 102),
+      ]),
+    ).toBe('live');
+    expect(book.lastUpdateId).toBe(102);
+  });
+
   it('rejects a bridge that starts after the snapshot boundary', () => {
     const book = createOrderBook();
     loadDepthSnapshot(book, snapshot(100));
@@ -92,7 +106,8 @@ describe('order-book sequence helpers', () => {
     loadDepthSnapshot(book, snapshot(10));
 
     expect(applyNextDepthUpdate(book, update(11, 11))).toBe('applied');
-    expect(applyNextDepthUpdate(book, update(11, 11))).toBe('gap');
+    expect(applyNextDepthUpdate(book, update(11, 11))).toBe('ignored');
+    expect(applyNextDepthUpdate(book, update(10, 10))).toBe('ignored');
     expect(applyNextDepthUpdate(book, update(13, 13))).toBe('gap');
   });
 

@@ -345,6 +345,20 @@ describe('order-book coordinator', () => {
     expect(value.controller.getSnapshot().gapCount).toBe(0);
   });
 
+  it('ignores duplicate and older live events without resyncing', async () => {
+    const value = harness();
+    await makeLive(value);
+    const intact = value.controller.getSnapshot();
+
+    value.emit(update(101, 101, [['100', '999']]));
+    value.emit(update(100, 100, [['100', '998']]));
+    value.flush();
+
+    expect(value.controller.getSnapshot()).toBe(intact);
+    expect(value.requests).toHaveLength(1);
+    expect(value.health.noteBookGap).not.toHaveBeenCalled();
+  });
+
   it('retries a rejected REST request with bounded backoff', async () => {
     const value = harness();
     value.controller.start();
