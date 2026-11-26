@@ -48,9 +48,9 @@ describe('normalizeDecimal', () => {
   it.each([null, undefined, 1, Number.NaN])(
     'rejects non-string input %s',
     (input) => {
-      expect(() =>
-        normalizeDecimal(input as unknown as string),
-      ).toThrow(TypeError);
+      expect(() => normalizeDecimal(input as unknown as string)).toThrow(
+        TypeError,
+      );
     },
   );
 });
@@ -70,9 +70,9 @@ describe('decimal arithmetic', () => {
   it('adds large prices and tiny increments without float rounding', () => {
     expect(addDecimal('98304.12345678', '0.00000001')).toBe('98304.12345679');
     expect(addDecimal('0.1', '0.2')).toBe('0.3');
-    expect(
-      addDecimal('0.000000000000000001', '0.000000000000000002'),
-    ).toBe('0.000000000000000003');
+    expect(addDecimal('0.000000000000000001', '0.000000000000000002')).toBe(
+      '0.000000000000000003',
+    );
   });
 
   it('subtracts adjacent book prices exactly', () => {

@@ -57,9 +57,9 @@ describe('isDepthUpdateEvent', () => {
     expect(isDepthUpdateEvent({ ...validDepth(), b: {} })).toBe(false);
     expect(isDepthUpdateEvent({ ...validDepth(), a: [['1']] })).toBe(false);
     expect(isDepthUpdateEvent({ ...validDepth(), b: [['1', 2]] })).toBe(false);
-    expect(
-      isDepthUpdateEvent({ ...validDepth(), b: [['1', '2', '3']] }),
-    ).toBe(false);
+    expect(isDepthUpdateEvent({ ...validDepth(), b: [['1', '2', '3']] })).toBe(
+      false,
+    );
     expect(isDepthUpdateEvent({ ...validDepth(), a: [null] })).toBe(false);
   });
 });

@@ -25,12 +25,9 @@ export function createFrameTask(
     ((handle: number) => globalThis.cancelAnimationFrame(handle));
   const scheduleTimeout =
     options.setTimeout ??
-    ((next: () => void, delay: number) =>
-      window.setTimeout(next, delay));
+    ((next: () => void, delay: number) => window.setTimeout(next, delay));
   const cancelTimeout =
-    options.clearTimeout ??
-    ((handle: number) =>
-      window.clearTimeout(handle));
+    options.clearTimeout ?? ((handle: number) => window.clearTimeout(handle));
 
   let pending = false;
   let frameHandle: number | null = null;

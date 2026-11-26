@@ -39,8 +39,7 @@ function formatDecimal(value: bigint, scale: number): Decimal {
     .toString()
     .padStart(scale + 1, '0');
   const integer = scale === 0 ? digits : digits.slice(0, -scale);
-  const fraction =
-    scale === 0 ? '' : digits.slice(-scale).replace(/0+$/, '');
+  const fraction = scale === 0 ? '' : digits.slice(-scale).replace(/0+$/, '');
 
   return `${negative ? '-' : ''}${integer}${fraction ? `.${fraction}` : ''}`;
 }
@@ -104,7 +103,9 @@ export function decimalRatio(
     throw new RangeError('Ratio denominator cannot be zero');
   }
 
-  const negative = (top.value < 0n) !== (bottom.value < 0n);
+  const negative =
+    (top.value < 0n && bottom.value > 0n) ||
+    (top.value > 0n && bottom.value < 0n);
   const [topValue, bottomValue] = alignDecimals(top, bottom);
   const quotient =
     ((topValue < 0n ? -topValue : topValue) * powerOfTen(digits)) /
@@ -119,7 +120,11 @@ export function ratioToPercent(numerator: string, denominator: string): number {
   if (bottom.value === 0n || top.value === 0n) return 0;
 
   const [topValue, bottomValue] = alignDecimals(top, bottom);
-  if ((topValue < 0n) !== (bottomValue < 0n)) return 0;
+  if (
+    (topValue < 0n && bottomValue > 0n) ||
+    (topValue > 0n && bottomValue < 0n)
+  )
+    return 0;
 
   const absoluteTop = topValue < 0n ? -topValue : topValue;
   const absoluteBottom = bottomValue < 0n ? -bottomValue : bottomValue;

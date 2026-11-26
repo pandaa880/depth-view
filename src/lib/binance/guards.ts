@@ -5,9 +5,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isNonnegativeSafeInteger(value: unknown): value is number {
-  return (
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-  );
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isLevel(value: unknown): value is [string, string] {
@@ -23,9 +21,7 @@ function isLevelArray(value: unknown): value is [string, string][] {
   return Array.isArray(value) && value.every(isLevel);
 }
 
-export function isDepthUpdateEvent(
-  value: unknown,
-): value is DepthUpdateEvent {
+export function isDepthUpdateEvent(value: unknown): value is DepthUpdateEvent {
   return (
     isRecord(value) &&
     value.e === 'depthUpdate' &&
