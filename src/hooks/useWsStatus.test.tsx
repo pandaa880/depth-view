@@ -3,7 +3,6 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { BinanceWebSocketManager } from '../lib/binance/BinanceWebSocket';
-import { createFeedHealth, useMarketHealthStore } from '../stores/marketHealth';
 import { useWsStatus } from './useWsStatus';
 
 class TestSocket {
@@ -33,6 +32,11 @@ class TestSocket {
     this.emit('open');
   }
 
+  emitClose(): void {
+    this.readyState = 3;
+    this.emit('close');
+  }
+
   private emit(type: string): void {
     for (const listener of this.listeners.get(type) ?? []) listener();
   }
@@ -50,7 +54,6 @@ function createManager(): BinanceWebSocketManager {
 
 afterEach(() => {
   TestSocket.instances = [];
-  useMarketHealthStore.setState({ global: createFeedHealth() });
 });
 
 describe('useWsStatus', () => {
@@ -75,13 +78,26 @@ describe('useWsStatus', () => {
     });
 
     act(() => {
-      useMarketHealthStore.getState().updateGlobal({
-        nextReconnectAt: 42_000,
-        reconnectAttempt: 2,
-      });
+      TestSocket.instances[0]?.emitClose();
     });
 
-    expect(result.current.nextReconnectAt).toBe(42_000);
-    expect(result.current.reconnectAttempt).toBe(2);
+    // metadata comes from the same manager instance, not a global store
+    expect(result.current.status).toBe('reconnecting');
+    expect(result.current.nextReconnectAt).toBe(1000);
+    expect(result.current.reconnectAttempt).toBe(1);
+  });
+
+  it('follows the manager passed in rather than the shared singleton', () => {
+    const manager = createManager();
+    const { result } = renderHook(() => useWsStatus(manager));
+
+    act(() => {
+      manager.connect();
+      TestSocket.instances[0]?.open();
+    });
+
+    expect(result.current.status).toBe('live');
+    expect(result.current.reconnectAttempt).toBe(0);
+    expect(result.current.nextReconnectAt).toBeNull();
   });
 });

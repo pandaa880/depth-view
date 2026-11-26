@@ -275,6 +275,31 @@ describe('connection lifecycle', () => {
     expect(harness.timers.pendingDelays).toEqual([30_000]);
   });
 
+  it('keeps bounded retry when the socket factory throws', () => {
+    let attempts = 0;
+    const harness = createHarness({
+      socketFactory: (url) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('socket unavailable');
+        return new FakeSocket(url) as unknown as WebSocket;
+      },
+    });
+
+    harness.manager.connect();
+
+    expect(FakeSocket.instances).toHaveLength(0);
+    expect(harness.manager.getConnectionMetrics()).toMatchObject({
+      status: 'reconnecting',
+      reconnectAttempt: 1,
+      nextReconnectAt: 1000,
+    });
+    expect(harness.timers.pendingDelays).toEqual([1000]);
+
+    harness.timers.runNext();
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(harness.manager.getStatus()).toBe('connecting');
+  });
+
   it('uses capped exponential retry delays and reports the attempt', () => {
     const harness = createHarness();
     harness.manager.connect();
@@ -341,6 +366,45 @@ describe('subscription bookkeeping', () => {
       method: 'UNSUBSCRIBE',
       params: ['beta'],
     });
+  });
+
+  it('delivers once per frame when the same callback registers twice', () => {
+    const harness = createHarness();
+    harness.manager.connect();
+    const socket = harness.socket();
+    socket.open();
+
+    const handler = vi.fn();
+    const stopFirst = harness.manager.subscribe('alpha', handler);
+    const stopSecond = harness.manager.subscribe('alpha', handler);
+
+    expect(socket.sent).toHaveLength(1);
+    expect(parseSent(socket)).toMatchObject({
+      method: 'SUBSCRIBE',
+      params: ['alpha'],
+    });
+
+    socket.message({ stream: 'alpha', data: { price: '1.00' } });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    // first unsubscribe only drops one registration
+    stopFirst();
+    stopFirst();
+    expect(socket.sent).toHaveLength(1);
+
+    socket.message({ stream: 'alpha', data: { price: '1.01' } });
+    expect(handler).toHaveBeenCalledTimes(2);
+
+    stopSecond();
+    stopSecond();
+    expect(socket.sent).toHaveLength(2);
+    expect(parseSent(socket)).toMatchObject({
+      method: 'UNSUBSCRIBE',
+      params: ['alpha'],
+    });
+
+    socket.message({ stream: 'alpha', data: { price: '1.02' } });
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
   it('routes envelopes only to the matching stream handlers', () => {
@@ -426,6 +490,38 @@ describe('heartbeat watchdog', () => {
     socket.emitClose();
     expect(harness.timers.pendingDelays).toEqual([1000]);
     expect(harness.manager.getConnectionMetrics().reconnectAttempt).toBe(1);
+  });
+
+  it('recovers a socket that never finishes connecting', () => {
+    const harness = createHarness();
+    harness.manager.connect();
+
+    const stuck = harness.socket();
+    expect(stuck.readyState).toBe(0);
+    expect(harness.timers.pendingDelays).toEqual([30_000]);
+
+    harness.setNow(30_000);
+    harness.timers.runNext();
+
+    expect(stuck.closeCalls.at(-1)).toEqual({
+      code: 4000,
+      reason: 'heartbeat timeout',
+    });
+    expect(harness.timers.pendingDelays).toEqual([1000]);
+    expect(harness.manager.getConnectionMetrics()).toMatchObject({
+      status: 'reconnecting',
+      reconnectAttempt: 1,
+      nextReconnectAt: 31_000,
+    });
+
+    // the timed-out socket's own close event must not queue a second attempt
+    stuck.emitClose();
+    expect(harness.timers.pendingDelays).toEqual([1000]);
+    expect(harness.manager.getConnectionMetrics().reconnectAttempt).toBe(1);
+
+    harness.timers.runNext();
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(harness.timers.pendingDelays).toEqual([30_000]);
   });
 
   it('publishes low-frequency state and clears stale on open', () => {
@@ -526,6 +622,35 @@ describe('visibility handling', () => {
       hasDocument: () => host.document !== undefined,
     };
   }
+
+  it('does not reconnect after an intentional disconnect hides and returns', () => {
+    const doc = installDocument();
+    const harness = createHarness();
+    harness.manager.subscribe('ticks', vi.fn());
+
+    try {
+      const cleanup = harness.manager.setupVisibilityHandler();
+
+      harness.manager.connect();
+      harness.socket().open();
+      harness.manager.disconnect();
+      expect(FakeSocket.instances).toHaveLength(1);
+
+      doc.fakeDocument.hidden = true;
+      doc.dispatch();
+      expect(harness.manager.getStatus()).toBe('closed');
+
+      doc.fakeDocument.hidden = false;
+      doc.dispatch();
+      expect(FakeSocket.instances).toHaveLength(1);
+      expect(harness.manager.getStatus()).toBe('closed');
+      expect(harness.timers.pendingDelays).toEqual([]);
+
+      cleanup();
+    } finally {
+      doc.restore();
+    }
+  });
 
   it('registers one listener and pauses/resumes with subscriptions', () => {
     const doc = installDocument();

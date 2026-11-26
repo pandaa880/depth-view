@@ -99,7 +99,9 @@ export class BinanceWebSocketManager {
   // incremented whenever the active socket is replaced or invalidated, so
   // late open/message/close/error events from an old socket can be ignored
   private socketGeneration = 0;
-  private subscriptions: Map<string, Set<MessageHandler>> = new Map();
+  // stream -> handler -> registration count, so the same callback can be
+  // registered twice and still only receive one call per frame
+  private subscriptions: Map<string, Map<MessageHandler, number>> = new Map();
   private statusHandlers: Set<StatusHandler> = new Set();
   private status: ConnectionStatus = CONNECTION_STATUS.Uninstantiated;
   private messageId = 1;
@@ -187,6 +189,10 @@ export class BinanceWebSocketManager {
     socket.addEventListener('error', () => {
       this.handleError(socket, generation);
     });
+
+    // cover the handshake too: a socket that never opens would otherwise sit
+    // in CONNECTING forever with no deadline
+    this.armWatchdog(socket, generation);
   }
 
   private handleOpen(socket: WebSocket, generation: number): void {
@@ -234,7 +240,8 @@ export class BinanceWebSocketManager {
     if (typeof parsed.stream === 'string' && 'data' in parsed) {
       const handlers = this.subscriptions.get(parsed.stream);
       if (!handlers) return;
-      for (const handler of handlers) handler(parsed.data);
+      // iterate keys: a handler registered twice still runs once per frame
+      for (const handler of handlers.keys()) handler(parsed.data);
     }
   }
 
@@ -311,11 +318,12 @@ export class BinanceWebSocketManager {
   subscribe(streamName: string, handler: MessageHandler): () => void {
     let handlers = this.subscriptions.get(streamName);
     if (!handlers) {
-      handlers = new Set();
+      handlers = new Map();
       this.subscriptions.set(streamName, handlers);
+      // only the first registration opens the stream
       this.sendSubscribe(streamName);
     }
-    handlers.add(handler);
+    handlers.set(handler, (handlers.get(handler) ?? 0) + 1);
 
     let active = true;
     return () => {
@@ -323,11 +331,18 @@ export class BinanceWebSocketManager {
       active = false;
 
       const current = this.subscriptions.get(streamName);
-      if (!current) return;
+      const count = current?.get(handler);
+      if (!current || count === undefined) return;
+
+      if (count > 1) {
+        current.set(handler, count - 1);
+        return;
+      }
 
       current.delete(handler);
       if (current.size === 0) {
         this.subscriptions.delete(streamName);
+        // only the final removal closes the stream
         this.sendUnsubscribe(streamName);
       }
     };
@@ -433,10 +448,12 @@ export class BinanceWebSocketManager {
     const handler = () => {
       if (typeof document === 'undefined') return;
       if (document.hidden) {
-        this.pause();
+        // an intentional disconnect stays in charge; hiding must not re-arm it
+        if (!this.isIntentionallyDisconnected) this.pause();
         return;
       }
-      if (this.isPaused) this.resume();
+      // resume only a visibility pause, never an intentional disconnect
+      if (this.isPaused && !this.isIntentionallyDisconnected) this.resume();
     };
 
     document.addEventListener('visibilitychange', handler);

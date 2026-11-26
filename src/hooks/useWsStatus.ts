@@ -4,7 +4,6 @@ import {
   wsManager,
   type BinanceWebSocketManager,
 } from '../lib/binance/BinanceWebSocket';
-import { useMarketHealthStore } from '../stores/marketHealth';
 
 type UseWsStatusResult = {
   status: string;
@@ -46,16 +45,32 @@ export function useWsStatus(
     (onStatusChange: () => void) => manager.onStatusChange(onStatusChange),
     [manager],
   );
-  const getSnapshot = useCallback(() => manager.getStatus(), [manager]);
-  const status = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  // only low-frequency reconnect metadata is read from the health store, so
-  // raw messages never re-render this hook
-  const nextReconnectAt = useMarketHealthStore(
-    (state) => state.global.nextReconnectAt,
+  // every value comes from the same manager instance; reconnecting creates a
+  // new metrics object each call, so snapshots expose primitives instead
+  const readStatus = useCallback(
+    () => manager.getConnectionMetrics().status,
+    [manager],
   );
-  const reconnectAttempt = useMarketHealthStore(
-    (state) => state.global.reconnectAttempt,
+  const readReconnectAttempt = useCallback(
+    () => manager.getConnectionMetrics().reconnectAttempt,
+    [manager],
+  );
+  const readNextReconnectAt = useCallback(
+    () => manager.getConnectionMetrics().nextReconnectAt,
+    [manager],
+  );
+
+  const status = useSyncExternalStore(subscribe, readStatus, readStatus);
+  const reconnectAttempt = useSyncExternalStore(
+    subscribe,
+    readReconnectAttempt,
+    readReconnectAttempt,
+  );
+  const nextReconnectAt = useSyncExternalStore(
+    subscribe,
+    readNextReconnectAt,
+    readNextReconnectAt,
   );
 
   const statusText = status === 'open' ? 'live' : status;
