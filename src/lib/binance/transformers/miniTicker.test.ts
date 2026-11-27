@@ -21,7 +21,6 @@ function makeRaw(overrides: Partial<MiniTickerRaw> = {}): MiniTickerRaw {
     l: '99.00',
     v: '10.00000000',
     q: '1000.00000000',
-    P: '1.00',
     ...overrides,
   };
 }
@@ -101,9 +100,9 @@ describe('transformMiniTicker', () => {
     });
   });
 
-  it('uses the supplied percentage and an exact flash comparison', () => {
+  it('derives the percentage exactly and compares flashes exactly', () => {
     const result = transformMiniTicker(
-      makeRaw({ c: '0.1', o: '0.3', P: '-66.66666666', E: 2_000 }),
+      makeRaw({ c: '0.1', o: '0.3', E: 2_000 }),
       makeTicker({ lastPrice: '0.2', lastEventTime: 1_000 }),
     );
 
@@ -153,12 +152,25 @@ describe('transformMiniTicker', () => {
   });
 });
 
-describe('streamed percentage', () => {
-  it('uses the supplied percent field rather than recomputing from prices', () => {
-    expect(
-      transformMiniTicker(makeRaw({ c: '102.00', P: '3.50000000' }))
-        ?.priceChangePercent,
-    ).toBe(3.5);
+describe('real Binance mini ticker payload', () => {
+  // Shape of a live !miniTicker@arr entry: Binance sends no percent field.
+  const live = {
+    e: '24hrMiniTicker',
+    E: 1_795_769_280_018,
+    s: 'ETHUSDT',
+    c: '1730.24000000',
+    o: '1696.32000000',
+    h: '1745.00000000',
+    l: '1690.11000000',
+    v: '301245.12340000',
+    q: '517000000.12345678',
+  };
+
+  it('accepts the payload and derives the 24h percentage from c and o', () => {
+    expect(isMiniTickerRaw(live)).toBe(true);
+    const result = transformMiniTicker(live);
+    expect(result?.lastPrice).toBe('1730.24000000');
+    expect(result?.priceChangePercent).toBeCloseTo(1.99962271, 8);
   });
 });
 

@@ -61,7 +61,10 @@ export function CandlestickChart({
     if (shouldFit) fitPendingRef.current = false;
   }, [candles, ema, updateKind]);
 
-  const displaySymbol = symbol.toUpperCase();
+  const upperSymbol = symbol.toUpperCase();
+  const displaySymbol = upperSymbol.endsWith('USDT')
+    ? `${upperSymbol.slice(0, -4)}/USDT`
+    : upperSymbol;
 
   return (
     <section
