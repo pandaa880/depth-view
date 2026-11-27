@@ -42,7 +42,6 @@ function makeRaw(symbol = 'BTCUSDT', close = '101.00', eventTime = 1_000) {
     l: '99.00',
     v: '10',
     q: '1000.00000000',
-    P: '1.00',
   };
 }
 
