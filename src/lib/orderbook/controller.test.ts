@@ -219,6 +219,11 @@ describe('order-book coordinator', () => {
       'btcusdt@depth@100ms',
       expect.any(Function),
     );
+    value.flush();
+    expect(value.controller.getSnapshot().state).toBe('connecting');
+    expect(listener).not.toHaveBeenCalled();
+
+    value.emit(update(101, 101));
     expect(value.rest.getDepthSnapshot).toHaveBeenCalledWith(
       'BTCUSDT',
       1000,
@@ -228,13 +233,84 @@ describe('order-book coordinator', () => {
     expect(value.controller.getSnapshot().state).toBe('syncing');
     expect(listener).toHaveBeenCalledTimes(1);
 
-    value.emit(update(101, 101));
     await value.resolveRequest(0, snapshot(100));
     expect(value.controller.getSnapshot().state).toBe('syncing');
     expect(listener).toHaveBeenCalledTimes(1);
     value.flush();
     expect(value.controller.getSnapshot().state).toBe('live');
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('requests the snapshot only after the first depth event', () => {
+    const value = harness();
+    value.controller.start();
+    value.setStatus(CONNECTION_STATUS.Open);
+    value.emit({ e: 'trade' });
+    value.emit({ ...update(101, 101), s: 'ETHUSDT' });
+    expect(value.requests).toHaveLength(0);
+
+    value.emit(update(101, 101));
+    value.emit(update(102, 102));
+    expect(value.requests).toHaveLength(1);
+  });
+
+  it('refetches a snapshot older than the first event without counting a gap', async () => {
+    const value = harness();
+    value.controller.start();
+    value.emit(update(150, 160, [['98', '2']]));
+    await value.resolveRequest(0, snapshot(100));
+
+    expect(value.requests).toHaveLength(2);
+    expect(value.requests[0].signal?.aborted).toBe(false);
+    await value.resolveRequest(1, snapshot(155));
+    value.flush();
+
+    const view = value.controller.getSnapshot();
+    expect(view.state).toBe('live');
+    expect(view.lastUpdateId).toBe(160);
+    expect(view.gapCount).toBe(0);
+    expect(value.requests).toHaveLength(2);
+    expect(value.health.noteBookGap).not.toHaveBeenCalled();
+  });
+
+  it('turns repeated too-old snapshots into the retry path, not a loop', async () => {
+    const value = harness();
+    value.controller.start();
+    value.emit(update(500, 500));
+    await value.resolveRequest(0, snapshot(100));
+    await value.resolveRequest(1, snapshot(100));
+    expect(value.requests).toHaveLength(3);
+    await value.resolveRequest(2, snapshot(100));
+    value.flush();
+
+    expect(value.requests).toHaveLength(3);
+    expect(value.controller.getSnapshot().state).toBe('error');
+    expect(value.controller.getSnapshot().gapCount).toBe(0);
+    expect(value.health.noteBookGap).not.toHaveBeenCalled();
+    expect(
+      Array.from(value.timers.values()).map((timer) => timer.delay),
+    ).toEqual([250]);
+
+    value.fireTimer(250);
+    expect(value.requests).toHaveLength(4);
+    value.emit(update(201, 201));
+    await value.resolveRequest(3, snapshot(200));
+    value.flush();
+    expect(value.controller.getSnapshot().state).toBe('live');
+    expect(value.controller.getSnapshot().gapCount).toBe(0);
+  });
+
+  it('still counts a real discontinuity after the stale-snapshot bridge', async () => {
+    const value = harness();
+    value.controller.start();
+    value.emit(update(150, 160));
+    value.emit(update(170, 170));
+    await value.resolveRequest(0, snapshot(100));
+    await value.resolveRequest(1, snapshot(155));
+    value.flush();
+
+    expect(value.controller.getSnapshot().gapCount).toBe(1);
+    expect(value.requests).toHaveLength(3);
   });
 
   it('buffers, drops stale events, applies the bridge and second diff in order', async () => {
@@ -362,6 +438,7 @@ describe('order-book coordinator', () => {
   it('retries a rejected REST request with bounded backoff', async () => {
     const value = harness();
     value.controller.start();
+    value.emit(update(101, 101));
     value.flush();
     await value.rejectRequest(0);
     value.flush();
@@ -385,6 +462,7 @@ describe('order-book coordinator', () => {
   it('times out an unresolved snapshot and rejects its obsolete result', async () => {
     const value = harness();
     value.controller.start();
+    value.emit(update(101, 101));
     value.fireTimer(10_000);
     expect(value.requests[0].signal?.aborted).toBe(true);
     value.flush();
@@ -431,9 +509,29 @@ describe('order-book coordinator', () => {
 
     value.setStatus(CONNECTION_STATUS.Open);
     value.setStatus(CONNECTION_STATUS.Open);
-    expect(value.requests).toHaveLength(2);
+    expect(value.requests).toHaveLength(1);
     value.emit(update(201, 201));
+    expect(value.requests).toHaveLength(2);
     await value.resolveRequest(1, snapshot(200));
+    value.flush();
+
+    expect(value.controller.getSnapshot().state).toBe('live');
+    expect(value.controller.getSnapshot().gapCount).toBe(1);
+    expect(value.health.noteBookGap).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a fresh event after reconnect and counts no bridge gap', async () => {
+    const value = harness();
+    await makeLive(value);
+
+    value.setStatus(CONNECTION_STATUS.Closed);
+    value.setStatus(CONNECTION_STATUS.Open);
+    value.emit(update(102, 102));
+    expect(value.requests).toHaveLength(2);
+    expect(value.requests[1].signal?.aborted).toBe(false);
+    await value.resolveRequest(1, snapshot(50));
+    expect(value.requests).toHaveLength(3);
+    await value.resolveRequest(2, snapshot(101));
     value.flush();
 
     expect(value.controller.getSnapshot().state).toBe('live');
@@ -446,6 +544,7 @@ describe('order-book coordinator', () => {
     const listener = vi.fn();
     const unsubscribeListener = value.controller.subscribe(listener);
     value.controller.start();
+    value.emit(update(101, 101));
     const activeSignal = value.requests[0].signal;
 
     value.controller.stop();

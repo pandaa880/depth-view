@@ -81,11 +81,16 @@ describe('order-book sequence helpers', () => {
     expect(book.lastUpdateId).toBe(102);
   });
 
-  it('rejects a bridge that starts after the snapshot boundary', () => {
+  it('reports a snapshot older than the first event as stale, not a gap', () => {
     const book = createOrderBook();
     loadDepthSnapshot(book, snapshot(100));
 
-    expect(reconcileBufferedDepthUpdates(book, [update(102, 102)])).toBe('gap');
+    expect(reconcileBufferedDepthUpdates(book, [update(102, 102)])).toBe(
+      'stale-snapshot',
+    );
+    expect(
+      reconcileBufferedDepthUpdates(book, [update(99, 100), update(105, 106)]),
+    ).toBe('stale-snapshot');
   });
 
   it('rejects a discontinuity on the second diff without reordering', () => {

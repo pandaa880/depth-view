@@ -13,6 +13,17 @@ import './orderbook.css';
 
 const LEVELS_PER_SIDE = 20;
 const MISSING = '–';
+const SPREAD_BPS_FRACTION_DIGITS = 4;
+
+/** Truncates (never rounds) a decimal string to 4 fraction digits, zero-padded. */
+function formatSpreadBps(value: string): string {
+  const [whole, fraction = ''] = value.split('.');
+  const digits = fraction
+    .slice(0, SPREAD_BPS_FRACTION_DIGITS)
+    .padEnd(SPREAD_BPS_FRACTION_DIGITS, '0');
+
+  return `${whole}.${digits}`;
+}
 
 type Side = 'bids' | 'asks';
 
@@ -162,14 +173,14 @@ const Ladder = memo(function Ladder({
 
 export function OrderBookPanel({ symbol, view }: OrderBookPanelProps) {
   const bids = useMemo(() => view.bids.slice(0, LEVELS_PER_SIDE), [view.bids]);
-  const asks = useMemo(
-    () => view.asks.slice(0, LEVELS_PER_SIDE).reverse(),
-    [view.asks],
-  );
+  // Asks are sorted ascending (best first), so the best ask sits in the top row.
+  const asks = useMemo(() => view.asks.slice(0, LEVELS_PER_SIDE), [view.asks]);
   const hasSides = bids.length > 0 && asks.length > 0;
   const spread = hasSides ? formatPrice(symbol, view.spread) : MISSING;
   const spreadBps =
-    hasSides && view.spreadBps.length > 0 ? view.spreadBps : MISSING;
+    hasSides && view.spreadBps.length > 0
+      ? formatSpreadBps(view.spreadBps)
+      : MISSING;
 
   return (
     <Panel

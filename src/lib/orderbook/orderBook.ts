@@ -23,7 +23,11 @@ export interface MutableOrderBook {
   lastUpdateId: number | null;
 }
 
-export type BufferedReconciliation = 'waiting' | 'live' | 'gap';
+export type BufferedReconciliation =
+  | 'waiting'
+  | 'live'
+  | 'gap'
+  | 'stale-snapshot';
 
 export function createOrderBook(): MutableOrderBook {
   return {
@@ -149,9 +153,9 @@ export function reconcileBufferedDepthUpdates(
 
   const first = events[index];
   const nextId = book.lastUpdateId + 1;
-  if (first.U > nextId || first.u < nextId) return 'gap';
-
-  if (first.u < first.U) return 'gap';
+  // The snapshot predates the stream: not a sequence gap, refetch it.
+  if (first.U > nextId) return 'stale-snapshot';
+  if (first.u < nextId || first.u < first.U) return 'gap';
   updateSequence(book, first);
   index += 1;
 

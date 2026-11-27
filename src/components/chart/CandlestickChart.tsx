@@ -8,9 +8,19 @@ import { TimeframeSelector } from './TimeframeSelector';
 
 export interface CandlestickChartProps {
   symbol: string;
+  /** Presentation only: extra classes for the outer section. */
+  className?: string;
+  /** Presentation only: replaces the default fixed plot-height classes. */
+  plotClassName?: string;
 }
 
-export function CandlestickChart({ symbol }: CandlestickChartProps) {
+const DEFAULT_PLOT_CLASS = 'h-[300px] sm:h-[400px]';
+
+export function CandlestickChart({
+  symbol,
+  className,
+  plotClassName = DEFAULT_PLOT_CLASS,
+}: CandlestickChartProps) {
   const [timeframe, setTimeframe] = useState<KlineTimeframe>('1m');
   const { candles, ema, status, updateKind, error, retry } = useKlines(
     symbol,
@@ -56,7 +66,7 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
   return (
     <section
       aria-label={`${displaySymbol} market chart`}
-      className="flex w-full min-w-0 flex-col overflow-hidden rounded-md border border-border bg-transparent"
+      className={`flex w-full min-w-0 flex-col overflow-hidden rounded-md border border-border bg-transparent${className ? ` ${className}` : ''}`}
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-baseline gap-2.5">
@@ -74,7 +84,7 @@ export function CandlestickChart({ symbol }: CandlestickChartProps) {
         <TimeframeSelector value={timeframe} onChange={setTimeframe} />
       </header>
 
-      <div className="relative h-[300px] w-full overflow-hidden sm:h-[400px]">
+      <div className={`relative w-full overflow-hidden ${plotClassName}`}>
         <div
           ref={containerRef}
           role="img"

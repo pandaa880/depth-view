@@ -8,6 +8,18 @@ import type {
 
 const BASE_URL: string = 'https://api.binance.com';
 
+export class BinanceRestError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(`Binance request failed with status ${status}`);
+    this.name = 'BinanceRestError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function get<T>(
   path: string,
   params?: Record<string, string | number>,
@@ -24,11 +36,7 @@ async function get<T>(
   const res = await fetch(url.toString(), { signal });
 
   if (!res.ok) {
-    const errorMessage = {
-      status: res.status,
-      message: await res.text(),
-    };
-    throw new Error(JSON.stringify(errorMessage));
+    throw new BinanceRestError(res.status, await res.text());
   }
 
   const result = await res.json();
