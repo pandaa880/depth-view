@@ -1,0 +1,39 @@
+.perf {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  z-index: 40;
+  padding: 6px 8px;
+  border: 1px solid var(--terminal-line);
+  border-radius: 2px;
+  color: var(--terminal-secondary);
+  background: color-mix(in srgb, var(--terminal-canvas) 92%, transparent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 15px;
+  pointer-events: none;
+}
+
+.perf dl {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+}
+
+.perf dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.perf dt {
+  color: var(--terminal-faint);
+}
+
+.perf dd {
+  min-width: 3ch;
+  margin: 0;
+  color: var(--terminal-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

@@ -52,13 +52,14 @@ const pricesIn = (container: HTMLElement, side: 'bids' | 'asks') =>
 afterEach(cleanup);
 
 describe('OrderBookPanel', () => {
-  it('renders bids descending and asks nearest the spread last', () => {
+  it('renders bids descending and asks ascending with the best ask on top', () => {
     const { container } = render(
       <OrderBookPanel symbol="BTCUSDT" view={liveView()} />,
     );
 
     expect(pricesIn(container, 'bids')).toEqual(['100', '99']);
-    expect(pricesIn(container, 'asks')).toEqual(['102', '101']);
+    expect(pricesIn(container, 'asks')).toEqual(['101', '102']);
+    expect(pricesIn(container, 'asks')[0]).toBe('101');
     expect(screen.getByText('Bids')).toBeTruthy();
     expect(screen.getByText('Asks')).toBeTruthy();
     expect(
@@ -76,7 +77,7 @@ describe('OrderBookPanel', () => {
     const summary = screen.getByLabelText('Spread summary');
 
     expect(within(summary).getByText('1')).toBeTruthy();
-    expect(within(summary).getByText('99.5')).toBeTruthy();
+    expect(within(summary).getByText('99.5000')).toBeTruthy();
 
     rerender(
       <OrderBookPanel
@@ -96,6 +97,19 @@ describe('OrderBookPanel', () => {
         .getByRole('table', { name: 'BTCUSDT bids ladder' })
         .querySelectorAll('.ob-row-blank').length,
     ).toBe(20);
+  });
+
+  it('truncates spreadBps to 4 zero-padded fraction digits', () => {
+    const { container } = render(
+      <OrderBookPanel
+        symbol="BTCUSDT"
+        view={{ ...liveView(), spreadBps: '0.001619214374996609' }}
+      />,
+    );
+    const bps = container.querySelector('.ob-summary-bps') as HTMLElement;
+
+    expect(bps.textContent).toBe('0.0016');
+    expect(bps.getAttribute('title')).toBe('0.0016');
   });
 
   it('derives depth-only bar transforms from the engine ratio', () => {

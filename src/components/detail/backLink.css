@@ -1,0 +1,12 @@
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--terminal-secondary);
+  font-size: 12px;
+}
+
+.back-link:hover {
+  color: var(--terminal-text);
+}

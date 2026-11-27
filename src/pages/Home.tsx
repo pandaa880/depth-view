@@ -1,24 +1,11 @@
+import { Link } from '@tanstack/react-router';
+
 import { Panel } from '../components/ui/Panel';
-import { StatusBadge, type StatusTone } from '../components/ui/StatusBadge';
 import { Wordmark } from '../components/ui/Wordmark';
 import { TickerGrid } from '../components/ticker-ui/TickerGrid';
-import { useWsStatus } from '../hooks/useWsStatus';
-
-const getStatusTone = (status: string): StatusTone => {
-  if (status === 'live' || status === 'open') return 'live';
-  if (
-    status === 'connecting' ||
-    status === 'reconnecting' ||
-    status === 'closing'
-  ) {
-    return 'pending';
-  }
-  return 'offline';
-};
+import { ConnectionDetails } from '../components/status/ConnectionDetails';
 
 export const Home = () => {
-  const { status } = useWsStatus();
-
   return (
     <div className="terminal-shell">
       <header className="terminal-header">
@@ -27,7 +14,12 @@ export const Home = () => {
             <Wordmark />
             <span className="terminal-descriptor">Real-time spot terminal</span>
           </div>
-          <StatusBadge status={status} tone={getStatusTone(status)} />
+          <div className="header-actions">
+            <Link to="/about" className="header-link">
+              About
+            </Link>
+            <ConnectionDetails />
+          </div>
         </div>
       </header>
 

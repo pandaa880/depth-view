@@ -1,0 +1,66 @@
+.conn {
+  position: relative;
+  flex: none;
+}
+
+.conn-trigger {
+  cursor: pointer;
+}
+
+.conn-trigger:hover {
+  border-color: var(--terminal-line-strong);
+}
+
+.conn-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: min(290px, calc(100vw - 24px));
+  padding: 8px 12px;
+  border: 1px solid var(--terminal-line-strong);
+  border-radius: 2px;
+  background: var(--terminal-panel-raised);
+}
+
+.conn-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.conn-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.conn-row dt {
+  color: var(--terminal-faint);
+  font-size: 11px;
+}
+
+.conn-row dd {
+  margin: 0;
+  color: var(--terminal-text);
+  font-size: 11px;
+  text-align: right;
+}
+
+.header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-link {
+  color: var(--terminal-secondary);
+  font-size: 12px;
+}
+
+.header-link:hover {
+  color: var(--terminal-text);
+}

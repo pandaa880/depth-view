@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Profiler, Suspense, useRef } from 'react';
 import { Outlet } from '@tanstack/react-router';
 
+import { PerformanceOverlay } from '../components/perf/PerformanceOverlay';
 import { Panel } from '../components/ui/Panel';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Wordmark } from '../components/ui/Wordmark';
@@ -66,6 +67,11 @@ const BootstrapPage = ({ error }: BootstrapPageProps) => (
 export const RootPage = () => {
   useWsConnection();
 
+  const commitsRef = useRef(0);
+  const countCommit = () => {
+    commitsRef.current += 1;
+  };
+
   const { isBootstrapped, error } = useExchangeInfo();
 
   if (!isBootstrapped && !error) {
@@ -78,7 +84,10 @@ export const RootPage = () => {
 
   return (
     <>
-      <Outlet />
+      <Profiler id="route-outlet" onRender={countCommit}>
+        <Outlet />
+      </Profiler>
+      <PerformanceOverlay commitsRef={commitsRef} />
       {RouterDevtools && (
         <Suspense fallback={null}>
           <RouterDevtools />

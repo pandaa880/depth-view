@@ -28,6 +28,7 @@ const DEFAULT_REQUEST_TIMEOUT = 10_000;
 const DEFAULT_RETRY_DELAY = 250;
 const MAX_RETRY_DELAY = 5_000;
 const DEFAULT_BUFFER_LIMIT = 5_000;
+const MAX_STALE_SNAPSHOTS = 3;
 
 type MessageHandler = (data: unknown) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
@@ -121,6 +122,8 @@ class BookCoordinator implements OrderBookController {
   private gapCount = 0;
   private started = false;
   private snapshotReady = false;
+  private awaitingFirstEvent = false;
+  private staleSnapshots = 0;
   private connectionInterrupted = false;
   private generation = 0;
   private activeSnapshot: ActiveSnapshot | null = null;
@@ -171,6 +174,8 @@ class BookCoordinator implements OrderBookController {
     this.gapCount = 0;
     this.retryAttempt = 0;
     this.snapshotReady = false;
+    this.awaitingFirstEvent = true;
+    this.staleSnapshots = 0;
     this.connectionInterrupted = false;
     this.viewState = 'connecting';
     this.view = createEmptyOrderBookView(this.symbol);
@@ -185,7 +190,6 @@ class BookCoordinator implements OrderBookController {
       this.handleMessage,
     );
 
-    this.startSnapshot();
     this.socket.connect();
   };
 
@@ -208,6 +212,7 @@ class BookCoordinator implements OrderBookController {
     this.buffered = [];
     clearOrderBook(this.book);
     this.snapshotReady = false;
+    this.awaitingFirstEvent = false;
     this.listeners.clear();
     this.pendingGaps = 0;
     this.pendingMessageAt = null;
@@ -257,7 +262,12 @@ class BookCoordinator implements OrderBookController {
     }
 
     this.buffered.push(event);
-    this.requestPublication(false);
+    if (this.awaitingFirstEvent) {
+      this.awaitingFirstEvent = false;
+      this.requestSnapshot();
+    } else {
+      this.requestPublication(false);
+    }
   };
 
   private handleStatus = (status: ConnectionStatus): void => {
@@ -267,7 +277,8 @@ class BookCoordinator implements OrderBookController {
     if (status === CONNECTION_STATUS.Open) {
       if (this.connectionInterrupted) {
         this.connectionInterrupted = false;
-        this.startSnapshot();
+        this.awaitingFirstEvent = true;
+        this.requestPublication(false);
       } else {
         this.requestPublication(false);
       }
@@ -295,6 +306,13 @@ class BookCoordinator implements OrderBookController {
     if (!this.started || this.connectionInterrupted) return;
 
     this.invalidateSync();
+    this.requestSnapshot();
+  }
+
+  // Fetches a snapshot for the current generation, keeping buffered events.
+  private requestSnapshot(): void {
+    if (!this.started || this.connectionInterrupted) return;
+
     const generation = this.generation;
     this.viewState = this.lastGoodView ? 'stale' : 'syncing';
     this.requestPublication(true);
@@ -365,6 +383,7 @@ class BookCoordinator implements OrderBookController {
     }
 
     this.snapshotReady = false;
+    this.staleSnapshots = 0;
     this.viewState = this.lastGoodView ? 'stale' : 'error';
     this.requestPublication(true);
 
@@ -401,13 +420,35 @@ class BookCoordinator implements OrderBookController {
       return;
     }
 
+    if (result === 'stale-snapshot') {
+      this.refetchStaleSnapshot(pending);
+      return;
+    }
+
     if (result === 'live') {
       this.viewState = 'live';
       this.retryAttempt = 0;
+      this.staleSnapshots = 0;
     } else {
       this.viewState = this.lastGoodView ? 'stale' : 'syncing';
     }
     this.requestPublication(true);
+  }
+
+  // The snapshot is older than the stream: refetch, not a sequence gap.
+  private refetchStaleSnapshot(pending: DepthUpdateEvent[]): void {
+    this.staleSnapshots += 1;
+    this.snapshotReady = false;
+    clearOrderBook(this.book);
+
+    if (this.staleSnapshots >= MAX_STALE_SNAPSHOTS) {
+      this.buffered = [];
+      this.handleSnapshotFailure(this.generation);
+      return;
+    }
+
+    this.buffered = pending;
+    this.requestSnapshot();
   }
 
   private recordGapAndSync(): void {
@@ -424,6 +465,8 @@ class BookCoordinator implements OrderBookController {
     this.buffered = [];
     clearOrderBook(this.book);
     this.snapshotReady = false;
+    this.awaitingFirstEvent = false;
+    this.staleSnapshots = 0;
   }
 
   private cancelActiveSnapshot(): void {

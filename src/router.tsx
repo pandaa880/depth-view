@@ -1,4 +1,5 @@
 import {
+  type RouterHistory,
   createRouter,
   createRoute,
   createRootRoute,
@@ -7,6 +8,7 @@ import {
 import { Home } from './pages/Home';
 import { RootPage } from './pages/RootPage';
 import { Detail } from './pages/Detail';
+import { About } from './pages/About';
 
 export const rootRoute = createRootRoute({
   component: RootPage,
@@ -24,9 +26,18 @@ export const detailRoute = createRoute({
   component: Detail,
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, detailRoute]);
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/about',
+  component: About,
+});
 
-export const router = createRouter({ routeTree });
+const routeTree = rootRoute.addChildren([homeRoute, detailRoute, aboutRoute]);
+
+export const createAppRouter = (history?: RouterHistory) =>
+  createRouter({ routeTree, history });
+
+export const router = createAppRouter();
 
 declare module '@tanstack/react-router' {
   interface Register {
