@@ -97,6 +97,9 @@ export function createMiniTickerFeed(
     let accepted = false;
     for (const item of data) {
       if (!isMiniTickerRaw(item) || !symbolSet.has(item.s)) continue;
+      const previous = pending.get(item.s);
+      if (previous && previous.E > item.E) continue;
+
       pending.set(item.s, item);
       accepted = true;
     }

@@ -21,6 +21,7 @@ function makeRaw(overrides: Partial<MiniTickerRaw> = {}): MiniTickerRaw {
     l: '99.00',
     v: '10.00000000',
     q: '1000.00000000',
+    P: '1.00',
     ...overrides,
   };
 }
@@ -100,9 +101,9 @@ describe('transformMiniTicker', () => {
     });
   });
 
-  it('uses exact decimal arithmetic for the percentage and flash', () => {
+  it('uses the supplied percentage and an exact flash comparison', () => {
     const result = transformMiniTicker(
-      makeRaw({ c: '0.1', o: '0.3', E: 2_000 }),
+      makeRaw({ c: '0.1', o: '0.3', P: '-66.66666666', E: 2_000 }),
       makeTicker({ lastPrice: '0.2', lastEventTime: 1_000 }),
     );
 
@@ -149,6 +150,15 @@ describe('transformMiniTicker', () => {
   it('returns null for malformed input rather than zero values', () => {
     expect(transformMiniTicker(makeRaw({ c: 'not-a-price' }))).toBeNull();
     expect(transformMiniTicker({} as MiniTickerRaw)).toBeNull();
+  });
+});
+
+describe('streamed percentage', () => {
+  it('uses the supplied percent field rather than recomputing from prices', () => {
+    expect(
+      transformMiniTicker(makeRaw({ c: '102.00', P: '3.50000000' }))
+        ?.priceChangePercent,
+    ).toBe(3.5);
   });
 });
 
@@ -264,7 +274,15 @@ describe('mergeTickerSnapshot', () => {
     ).toBe(existing);
   });
 
-  it('applies at or after the stream timestamp and keeps stream history', () => {
+  it('does not overwrite live state when the timestamps are equal', () => {
+    const existing = makeTicker({ lastEventTime: 2_000 });
+
+    expect(
+      mergeTickerSnapshot(existing, makeSnapshot({ closeTime: 2_000 })),
+    ).toBe(existing);
+  });
+
+  it('applies a newer snapshot without inventing flash or history', () => {
     const existing = makeTicker({
       lastEventTime: 2_000,
       priceHistory: [98, 99, 100],
@@ -272,14 +290,14 @@ describe('mergeTickerSnapshot', () => {
     });
     const result = mergeTickerSnapshot(
       existing,
-      makeSnapshot({ closeTime: 2_000 }),
+      makeSnapshot({ closeTime: 2_001 }),
     );
 
     expect(result).not.toBe(existing);
     expect(result.lastPrice).toBe('101.00');
     expect(result.priceHistory).toEqual([98, 99, 100]);
-    expect(result.flashDirection).toBe('down');
+    expect(result.flashDirection).toBeNull();
     expect(result.prevPrice).toBe('99.00');
-    expect(result.lastEventTime).toBe(2_000);
+    expect(result.lastEventTime).toBe(2_001);
   });
 });

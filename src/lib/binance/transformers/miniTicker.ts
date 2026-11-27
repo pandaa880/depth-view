@@ -1,11 +1,8 @@
 import { type TickerData } from '../../../models';
 import {
   compareDecimal,
-  decimalRatio,
   isDecimalString,
-  multiplyDecimal,
   normalizeDecimal,
-  subtractDecimal,
 } from '../../decimal';
 
 export type MiniTickerRaw = {
@@ -18,6 +15,7 @@ export type MiniTickerRaw = {
   l: string; // Low price
   v: string; // Total traded base asset volume
   q: string; // Total traded quote asset volume
+  P: string; // 24h price-change percentage
 };
 
 export type Ticker24hrSnapshot = {
@@ -31,7 +29,6 @@ export type Ticker24hrSnapshot = {
 };
 
 const HISTORY_LIMIT = 60;
-const PERCENT_RATIO_DIGITS = 8;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -51,6 +48,7 @@ export function isMiniTickerRaw(value: unknown): value is MiniTickerRaw {
     typeof value.s === 'string' &&
     value.s.length > 0 &&
     isNonnegativeSafeInteger(value.E) &&
+    toPercentNumber(value.P) !== null &&
     isDecimalString(value.c) &&
     isDecimalString(value.o) &&
     isDecimalString(value.h) &&
@@ -104,13 +102,6 @@ export function transformTicker24hr(raw: unknown): Ticker24hrSnapshot | null {
   };
 }
 
-function derivePriceChangePercent(close: string, open: string): number {
-  if (compareDecimal(open, '0') === 0) return Number.NaN;
-
-  const scaledDelta = multiplyDecimal(subtractDecimal(close, open), '100');
-  return Number(decimalRatio(scaledDelta, open, PERCENT_RATIO_DIGITS));
-}
-
 function nextPriceHistory(
   existing: TickerData | undefined,
   close: string,
@@ -161,7 +152,7 @@ export function transformMiniTicker(
       symbol: raw.s,
       lastPrice: raw.c,
       prevPrice: existing?.lastPrice ?? raw.c,
-      priceChangePercent: derivePriceChangePercent(raw.c, raw.o),
+      priceChangePercent: toPercentNumber(raw.P) ?? Number.NaN,
       priceHistory: nextPriceHistory(existing, raw.c),
       flashDirection: resolveFlashDirection(existing, raw.c),
       volume24h: normalizeDecimal(raw.q),
@@ -185,7 +176,7 @@ export function mergeTickerSnapshot(
 ): TickerData {
   if (
     existing?.lastEventTime !== undefined &&
-    snapshot.closeTime < existing.lastEventTime
+    snapshot.closeTime <= existing.lastEventTime
   ) {
     return existing;
   }
@@ -197,7 +188,7 @@ export function mergeTickerSnapshot(
     priceChangePercent: snapshot.priceChangePercent,
     volume24h: normalizeDecimal(snapshot.quoteVolume),
     priceHistory: existing?.priceHistory ?? [],
-    flashDirection: existing?.flashDirection ?? null,
+    flashDirection: null,
     highPrice: snapshot.highPrice,
     lowPrice: snapshot.lowPrice,
     lastEventTime: snapshot.closeTime,

@@ -42,6 +42,7 @@ function makeRaw(symbol = 'BTCUSDT', close = '101.00', eventTime = 1_000) {
     l: '99.00',
     v: '10',
     q: '1000.00000000',
+    P: '1.00',
   };
 }
 
@@ -201,6 +202,22 @@ describe('createMiniTickerFeed', () => {
     expect(updates.BTCUSDT.lastPrice).toBe('102.00');
     expect(updates.BTCUSDT.priceHistory).toEqual([102]);
     expect(Object.keys(updates)).toEqual(['BTCUSDT']);
+  });
+
+  it('keeps the highest event timestamp in a buffered frame', () => {
+    const harness = createHarness();
+    harness.feed.start();
+
+    harness.socket.emit([
+      makeRaw('BTCUSDT', '102.00', 2_000),
+      makeRaw('BTCUSDT', '101.00', 1_000),
+    ]);
+    harness.frames.flush();
+
+    expect(harness.setTickers).toHaveBeenCalledTimes(1);
+    const [updates] = harness.setTickers.mock.calls[0];
+    expect(updates.BTCUSDT.lastPrice).toBe('102.00');
+    expect(updates.BTCUSDT.lastEventTime).toBe(2_000);
   });
 
   it('ignores non-array, malformed, and non-default symbols', () => {
