@@ -152,3 +152,13 @@ export interface KlineResponse {
   result: BinanceKlineTuple[];
   rateLimits: ApiResponseRateLimit[];
 }
+
+export interface Ticker24hrResponse {
+  symbol: string;
+  lastPrice: string;
+  priceChangePercent: string | number;
+  highPrice: string;
+  lowPrice: string;
+  quoteVolume: string;
+  closeTime: number;
+}

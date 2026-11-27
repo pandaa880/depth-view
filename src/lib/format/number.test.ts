@@ -131,16 +131,21 @@ describe('formatQty', () => {
 });
 
 describe('formatCompact', () => {
-  it('renders magnitudes with the requested fraction digits', () => {
-    expect(formatCompact('1230000000', 2)).toBe('1.23B');
+  it('defaults to two fraction digits and trims trailing zeros', () => {
+    expect(formatCompact('1230000000')).toBe('1.23B');
     expect(formatCompact('456700000')).toBe('456.7M');
     expect(formatCompact('12300')).toBe('12.3K');
+  });
+
+  it('honors a requested fraction digit count', () => {
+    expect(formatCompact('1234567890', 0)).toBe('1B');
+    expect(formatCompact('1234567890', 4)).toBe('1.2345B');
   });
 
   it('keeps sensible sub-1K values without a suffix', () => {
     expect(formatCompact('983.4')).toBe('983.4');
     expect(formatCompact('12')).toBe('12');
-    expect(formatCompact('999.99')).toBe('999.9');
+    expect(formatCompact('999.99')).toBe('999.99');
   });
 
   it('trims trailing fraction zeros', () => {
@@ -151,9 +156,9 @@ describe('formatCompact', () => {
   });
 
   it('crosses unit boundaries exactly', () => {
-    expect(formatCompact('999999999')).toBe('999.9M');
+    expect(formatCompact('999999999')).toBe('999.99M');
     expect(formatCompact('1000000000')).toBe('1B');
-    expect(formatCompact('1234567890123')).toBe('1.2T');
+    expect(formatCompact('1234567890123')).toBe('1.23T');
   });
 
   it('handles zero, negatives, and malformed input', () => {
