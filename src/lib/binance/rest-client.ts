@@ -1,16 +1,29 @@
+import { DEFAULT_SYMBOLS } from '../../config/markets';
 import type {
   ExchangeInfoResponse,
   DepthSnapshotResponse,
   KlineResponse,
+  Ticker24hrResponse,
 } from './types';
 
 const BASE_URL: string = 'https://api.binance.com';
 
-const tickerSymbols = ['SOLUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+export class BinanceRestError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(`Binance request failed with status ${status}`);
+    this.name = 'BinanceRestError';
+    this.status = status;
+    this.body = body;
+  }
+}
 
 async function get<T>(
   path: string,
   params?: Record<string, string | number>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const url = new URL(BASE_URL + path);
 
@@ -20,14 +33,10 @@ async function get<T>(
     );
   }
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal });
 
   if (!res.ok) {
-    const errorMessage = {
-      status: res.status,
-      message: await res.text(),
-    };
-    throw new Error(JSON.stringify(errorMessage));
+    throw new BinanceRestError(res.status, await res.text());
   }
 
   const result = await res.json();
@@ -38,11 +47,23 @@ async function get<T>(
 export const binanceRest = {
   getExchangeInfo: () =>
     get<ExchangeInfoResponse>('/api/v3/exchangeInfo', {
-      symbols: JSON.stringify(tickerSymbols),
+      symbols: JSON.stringify(DEFAULT_SYMBOLS),
     }),
-  getDepthSnapshot: (symbol: string, limit = 1000) =>
-    get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }),
+  getDepthSnapshot: (symbol: string, limit = 1000, signal?: AbortSignal) =>
+    get<DepthSnapshotResponse>('/api/v3/depth', { symbol, limit }, signal),
 
-  getKlines: (symbol: string, interval: string, limit = 500) =>
-    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }),
+  getKlines: (
+    symbol: string,
+    interval: string,
+    limit = 500,
+    signal?: AbortSignal,
+  ) =>
+    get<KlineResponse[]>('/api/v3/klines', { symbol, interval, limit }, signal),
+
+  get24hrTickers: (symbols: readonly string[], signal?: AbortSignal) =>
+    get<Ticker24hrResponse[]>(
+      '/api/v3/ticker/24hr',
+      { symbols: JSON.stringify(symbols) },
+      signal,
+    ),
 };

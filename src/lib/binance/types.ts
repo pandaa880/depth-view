@@ -67,6 +67,56 @@ export interface ExchangeInfoResponse {
 type BidItem = [string, string]; /// [Price, Qty]
 type AskItem = [string, string]; /// [Price, Qty]
 
+export interface DepthUpdateEvent {
+  e: 'depthUpdate';
+  E: number;
+  s: string;
+  U: number;
+  u: number;
+  b: BidItem[];
+  a: AskItem[];
+}
+
+export interface TradeEvent {
+  e: 'trade';
+  E: number;
+  s: string;
+  t: number;
+  p: string;
+  q: string;
+  T: number;
+  m: boolean;
+}
+
+export type WebSocketTrade = TradeEvent;
+
+export interface KlineData {
+  t: number;
+  T: number;
+  s: string;
+  i: string;
+  f: number;
+  L: number;
+  o: string;
+  c: string;
+  h: string;
+  l: string;
+  v: string;
+  n: number;
+  x: boolean;
+  q: string;
+  V: string;
+  Q: string;
+  B: string;
+}
+
+export interface KlineEvent {
+  e: 'kline';
+  E: number;
+  s: string;
+  k: KlineData;
+}
+
 export interface DepthSnapshotResponse {
   lastUpdateId: number;
   bids: BidItem[];
@@ -101,4 +151,14 @@ export interface KlineResponse {
   status: number;
   result: BinanceKlineTuple[];
   rateLimits: ApiResponseRateLimit[];
+}
+
+export interface Ticker24hrResponse {
+  symbol: string;
+  lastPrice: string;
+  priceChangePercent: string | number;
+  highPrice: string;
+  lowPrice: string;
+  quoteVolume: string;
+  closeTime: number;
 }

@@ -1,60 +1,107 @@
+import { memo, useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
 
 import { useTickerStore } from '../../stores/globalStore';
+import {
+  formatCompact,
+  formatPercent,
+  formatPrice,
+} from '../../lib/format/number';
+import { Metric, type MarketTone } from '../ui/Metric';
+import { Skeleton } from '../ui/Skeleton';
+import { cx } from '../ui/cx';
 import { Sparkline } from './Sparkline';
-import { formatPrice, formatPercent } from '../../lib/format/number';
 
-interface TickerCardProps {
+type TickerCardProps = {
   symbol: string;
-}
+};
 
-export const TickerCard = ({ symbol }: TickerCardProps) => {
+const TickerCardSkeleton = () => (
+  <div className="ticker-card ticker-card-loading" aria-hidden="true">
+    <div className="ticker-top">
+      <Skeleton className="skeleton-symbol" />
+      <Skeleton className="skeleton-market-type" />
+    </div>
+    <Skeleton className="ticker-price skeleton-price" />
+    <div className="ticker-change">
+      <Skeleton className="skeleton-change" />
+    </div>
+    <Skeleton className="sparkline skeleton-sparkline" />
+    <div className="metric ticker-volume">
+      <Skeleton className="skeleton-volume-label" />
+      <Skeleton className="skeleton-volume-value" />
+    </div>
+  </div>
+);
+
+export const TickerCard = memo(function TickerCard({
+  symbol,
+}: TickerCardProps) {
   const ticker = useTickerStore((state) => state.tickers[symbol]);
+  const linkParams = useMemo(() => ({ symbol }), [symbol]);
 
-  if (!ticker) {
-    console.warn('No ticker data available yet!');
-    return null;
-  }
+  if (!ticker) return <TickerCardSkeleton />;
 
-  const { flashDirection, lastPrice, priceChangePercent, priceHistory } =
-    ticker;
-
-  const { text, arrow, isPositive } = formatPercent(priceChangePercent);
-  const changeColor = isPositive ? 'text-green-500' : 'text-red-500';
-
-  const flashClass =
-    flashDirection === 'up'
-      ? 'text-green-400'
-      : flashDirection === 'down'
-        ? 'text-red-400'
-        : 'text-slate-200';
+  const {
+    flashDirection,
+    lastPrice,
+    prevPrice,
+    priceChangePercent,
+    priceHistory,
+    volume24h,
+  } = ticker;
+  const { text, arrow, isPositive, isFlat } = formatPercent(priceChangePercent);
+  const tone: MarketTone = isFlat
+    ? 'flat'
+    : !Number.isFinite(priceChangePercent)
+      ? 'neutral'
+      : isPositive
+        ? 'up'
+        : 'down';
+  const baseAsset = symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
+  const formattedPrice = formatPrice(symbol, lastPrice);
+  const formattedVolume = formatCompact(volume24h);
+  const hasPriceChange = prevPrice !== undefined && prevPrice !== lastPrice;
 
   return (
-    <Link
-      to={`/symbol/$symbol`}
-      params={{ symbol }}
-      className="px-4 py-2 flex flex-col border border-solid border-border"
-    >
-      <span className="text-xs text-muted">
-        {symbol.replace('USDT', '/USDT')}
-      </span>
-      <span
-        className={`mb-2 text-base transition-colors duration-100 ${flashClass}`}
+    <Link to="/symbol/$symbol" params={linkParams} className="ticker-card">
+      <div className="ticker-top">
+        <span className="ticker-pair">
+          {baseAsset}
+          <span className="ticker-quote">/USDT</span>
+        </span>
+        <span className="ticker-market-type">SPOT</span>
+      </div>
+      <data
+        key={lastPrice}
+        value={lastPrice}
+        className={cx(
+          'ticker-price',
+          'numeric',
+          hasPriceChange && flashDirection === 'up' && 'price-flash-up',
+          hasPriceChange && flashDirection === 'down' && 'price-flash-down',
+        )}
       >
-        {formatPrice(symbol, lastPrice)}
-      </span>
+        {formattedPrice}
+      </data>
       <div
-        className={`mb-4 flex items-baseline gap-2.5 text-xs font-mono ${changeColor}`}
+        className="ticker-change numeric"
+        data-up={tone === 'up' || undefined}
+        data-down={tone === 'down' || undefined}
+        data-flat={tone === 'flat' || undefined}
       >
-        <span className="text-base">{arrow}</span>
+        <span className="ticker-change-label">24h change</span>
+        <span className="ticker-change-arrow" aria-hidden="true">
+          {arrow}
+        </span>
         <span>{text}</span>
       </div>
-      <div className="my-2">
-        <Sparkline
-          history={priceHistory}
-          color={isPositive ? '#22c55e' : '#ef4444'}
-        />
-      </div>
+      <Sparkline history={priceHistory} symbol={symbol} />
+      <Metric
+        className="ticker-volume"
+        label="24h volume"
+        value={`${formattedVolume} USDT`}
+      />
     </Link>
   );
-};
+});

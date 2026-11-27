@@ -1,0 +1,193 @@
+.trade-tape .panel-body {
+  display: flex;
+  min-width: 0;
+}
+
+.tt {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.tt-note {
+  flex: none;
+  margin: 0;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--terminal-line);
+  color: var(--terminal-warning);
+  background: var(--terminal-panel);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.tt-note[data-state='live'] {
+  color: var(--terminal-secondary);
+}
+
+.tt-note[data-state='offline'] {
+  color: var(--terminal-down);
+}
+
+.tt-scroll {
+  height: 300px;
+  min-height: 250px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.tt-scroll:focus-visible {
+  outline-offset: -2px;
+}
+
+.tt-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.tt-table .tt-time {
+  width: 30%;
+}
+
+.tt-table .tt-price {
+  width: 38%;
+}
+
+.tt-table .tt-qty {
+  width: 32%;
+}
+
+.tt-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 22px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--terminal-line);
+  color: var(--terminal-faint);
+  background: var(--terminal-panel);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 22px;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tt-table thead th.tt-time {
+  text-align: right;
+}
+
+.tt-utc {
+  color: var(--terminal-faint);
+  font-size: 8px;
+}
+
+.tt-row {
+  transition: background-color 120ms ease;
+}
+
+.tt-row td {
+  height: 22px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--terminal-line) 60%, transparent);
+  font-size: 11px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tt-row[data-side='buy'] {
+  background-color: color-mix(in srgb, var(--terminal-up) 6%, transparent);
+}
+
+.tt-row[data-side='sell'] {
+  background-color: color-mix(in srgb, var(--terminal-down) 7%, transparent);
+}
+
+.tt-row .tt-time {
+  color: var(--terminal-faint);
+  font-size: 10px;
+  text-align: right;
+}
+
+.tt-row .tt-price,
+.tt-row .tt-qty {
+  text-align: right;
+}
+
+.tt-row[data-side='buy'] .tt-price {
+  color: var(--terminal-up);
+}
+
+.tt-row[data-side='sell'] .tt-price {
+  color: var(--terminal-down);
+}
+
+.tt-row .tt-qty {
+  color: var(--terminal-secondary);
+}
+
+.tt-side {
+  display: inline-block;
+  width: 11px;
+  margin-right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  text-align: left;
+}
+
+.tt-row[data-side='buy'] .tt-side {
+  color: var(--terminal-up);
+}
+
+.tt-row[data-side='sell'] .tt-side {
+  color: var(--terminal-down);
+}
+
+.tt-skeleton {
+  height: 7px;
+}
+
+.tt-skeleton-time {
+  width: 58%;
+}
+
+.tt-skeleton-price {
+  width: 62%;
+  margin-left: auto;
+}
+
+.tt-skeleton-qty {
+  width: 46%;
+  margin-left: auto;
+}
+
+@media (max-width: 30rem) {
+  .tt-table thead th,
+  .tt-row td {
+    padding-inline: 6px;
+  }
+
+  .tt-row td {
+    font-size: 10.5px;
+  }
+
+  .tt-row .tt-time {
+    font-size: 9.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-row {
+    transition: none;
+  }
+}
