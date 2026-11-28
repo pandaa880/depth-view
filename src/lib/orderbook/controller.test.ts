@@ -579,6 +579,114 @@ describe('order-book coordinator', () => {
   });
 });
 
+describe('order-book coordinator error recovery', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function flakyFrameTask() {
+    let publish: () => void = () => {};
+    let pending = false;
+    const state = { failNextRequest: false };
+    const task: FrameTask = {
+      request() {
+        if (state.failNextRequest) {
+          state.failNextRequest = false;
+          throw new Error('frame scheduling failed');
+        }
+        pending = true;
+      },
+      flush() {
+        if (!pending) return;
+        pending = false;
+        publish();
+      },
+      cancel() {
+        pending = false;
+      },
+    };
+    const factory = (callback: () => void) => {
+      publish = callback;
+      return task;
+    };
+    return { task, state, factory };
+  }
+
+  it('aborts an in-flight snapshot when restarting after an error', async () => {
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    const flaky = flakyFrameTask();
+    const value = harness({ frameTaskFactory: flaky.factory });
+    value.controller.start();
+    value.emit(update(101, 101));
+    expect(value.requests).toHaveLength(1);
+
+    flaky.state.failNextRequest = true;
+    value.emit(update(102, 102));
+
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(value.requests[0].signal?.aborted).toBe(true);
+    value.emit(update(103, 103));
+    expect(value.requests).toHaveLength(2);
+    await value.resolveRequest(1, snapshot(102));
+    flaky.task.flush();
+
+    const view = value.controller.getSnapshot();
+    expect(view.state).toBe('live');
+    expect(view.gapCount).toBe(1);
+    expect(view.lastUpdateId).toBe(103);
+  });
+
+  it('restarts the sync after an internal error instead of freezing', async () => {
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    let failNextRequest = false;
+    let publish: () => void = () => {};
+    let pending = false;
+    const flaky: FrameTask = {
+      request() {
+        if (failNextRequest) {
+          failNextRequest = false;
+          throw new Error('frame scheduling failed');
+        }
+        pending = true;
+      },
+      flush() {
+        if (!pending) return;
+        pending = false;
+        publish();
+      },
+      cancel() {
+        pending = false;
+      },
+    };
+    const value = harness({
+      frameTaskFactory: (callback) => {
+        publish = callback;
+        return flaky;
+      },
+    });
+    value.controller.start();
+    value.emit(update(101, 101));
+    await value.resolveRequest(0, snapshot(100));
+    flaky.flush();
+    expect(value.controller.getSnapshot().state).toBe('live');
+
+    failNextRequest = true;
+    value.emit(update(102, 102, [['99', '2']]));
+    value.emit(update(103, 103));
+    expect(value.requests).toHaveLength(2);
+    await value.resolveRequest(1, snapshot(102));
+    flaky.flush();
+
+    const view = value.controller.getSnapshot();
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(view.state).toBe('live');
+    expect(view.gapCount).toBe(1);
+    expect(view.lastUpdateId).toBe(103);
+  });
+});
+
 describe('order-book controller registry', () => {
   it('shares by symbol and disposes after the final idempotent release', () => {
     const first = {

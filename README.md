@@ -36,6 +36,7 @@ public REST and WebSocket market data endpoints directly.
 - **Vite** for the dev server and production build.
 - **Tailwind CSS v4** (via `@tailwindcss/vite`) for utility styling alongside
   plain component stylesheets.
+- **XState v5** for the order book sync phases, as an explicit state machine.
 - **Zustand** for shared stores (tickers, exchange info, market health), read
   through narrow selectors.
 - **TanStack Router** for typed routes, including the `$symbol` parameter.
@@ -96,6 +97,40 @@ conversion to lightweight-charts coordinates.
 
 `src/lib/orderbook/` implements the snapshot and diff procedure used by
 Binance's diff-depth stream.
+
+The sync phase is an XState machine (`syncMachine.ts`). The controller
+(`controller.ts`) owns the book data, the pre-snapshot buffer and view
+publication, and forwards socket events to the machine. The machine owns the
+snapshot request (cancelled and aborted when its phase exits), the request
+timeout and the retry backoff. Book operations report results such as `gap`
+or `stale-snapshot` back to the machine as events. If the machine fails
+internally, the controller logs the error, counts a gap and restarts the sync.
+
+```mermaid
+stateDiagram-v2
+  [*] --> awaitingEvent
+  awaitingEvent --> fetchingSnapshot: first diff
+  fetchingSnapshot --> live: snapshot bridges buffer
+  fetchingSnapshot --> bridging: snapshot loaded, no bridge yet
+  fetchingSnapshot --> fetchingSnapshot: snapshot older than stream, or gap
+  fetchingSnapshot --> retryWait: error, timeout, or 3 stale snapshots
+  bridging --> live: bridging diff
+  live --> fetchingSnapshot: gap or malformed diff
+  bridging --> fetchingSnapshot: gap, or snapshot older than stream
+  bridging --> retryWait: 3 stale snapshots
+  retryWait --> fetchingSnapshot: backoff elapsed, or gap
+  awaitingEvent --> interrupted: socket interrupted
+  fetchingSnapshot --> interrupted: socket interrupted
+  bridging --> interrupted: socket interrupted
+  live --> interrupted: socket interrupted
+  retryWait --> interrupted: socket interrupted
+  interrupted --> awaitingEvent: socket open
+```
+
+The view state is derived from the phase: `live` shows the book; any other
+phase shows the last good view as `stale`, or `connecting` (waiting,
+interrupted), `syncing` (snapshot, bridging) or `error` (retry) before the
+first live view.
 
 - The controller subscribes to `symbol@depth@100ms` and buffers diff events,
   up to 5,000. A full buffer forces a resync.
