@@ -202,6 +202,7 @@ describe('book sync machine', () => {
     await h.resolveFetch(1);
     expect(h.phase()).toBe('fetchingSnapshot');
     expect(h.port.fetchSnapshot).toHaveBeenCalledTimes(3);
+    expect(h.port.resetSync).not.toHaveBeenCalled();
 
     await h.resolveFetch(2);
 
@@ -279,6 +280,91 @@ describe('book sync machine', () => {
 
     expect(h.phase()).toBe('awaitingEvent');
     expect(h.port.fetchSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('calls each book operation once per event', async () => {
+    const h = createHarness();
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    h.actor.send({ type: 'DEPTH', update: depth(102) });
+    await h.resolveFetch(0);
+    h.actor.send({ type: 'DEPTH', update: depth(103) });
+
+    expect(h.port.bufferEvent).toHaveBeenCalledTimes(2);
+    expect(h.port.loadSnapshot).toHaveBeenCalledTimes(1);
+    expect(h.port.applyLiveEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts the snapshot and its timer when the socket drops mid-fetch', async () => {
+    const h = createHarness();
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+
+    h.actor.send({ type: 'WS_INTERRUPTED' });
+
+    expect(h.fetches[0]?.signal.aborted).toBe(true);
+    expect(h.timers.size).toBe(0);
+    await h.resolveFetch(0);
+    expect(h.port.loadSnapshot).not.toHaveBeenCalled();
+    expect(h.phase()).toBe('interrupted');
+  });
+
+  it('cancels the retry backoff when the socket drops', async () => {
+    const h = createHarness();
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    await h.rejectFetch(0);
+    expect(h.delays()).toEqual([250]);
+
+    h.actor.send({ type: 'WS_INTERRUPTED' });
+
+    expect(h.timers.size).toBe(0);
+    expect(h.phase()).toBe('interrupted');
+  });
+
+  it('refetches at once on overflow during retry and keeps the backoff step', async () => {
+    const h = createHarness();
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    await h.rejectFetch(0);
+    h.outcomes.buffer = false;
+
+    h.actor.send({ type: 'DEPTH', update: depth(102) });
+
+    expect(h.phase()).toBe('fetchingSnapshot');
+    expect(h.port.fetchSnapshot).toHaveBeenCalledTimes(2);
+    await h.rejectFetch(1);
+    expect(h.delays()).toEqual([500]);
+  });
+
+  it('carries the stale-snapshot count from bridging to the limit', async () => {
+    const h = createHarness();
+    h.outcomes.load = 'stale-snapshot';
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    await h.resolveFetch(0);
+    await h.resolveFetch(1);
+    h.outcomes.load = 'waiting';
+    await h.resolveFetch(2);
+    expect(h.phase()).toBe('bridging');
+
+    h.outcomes.reconcile = 'stale-snapshot';
+    h.actor.send({ type: 'DEPTH', update: depth(102) });
+
+    expect(h.phase()).toBe('retryWait');
+    expect(h.port.recordGap).not.toHaveBeenCalled();
+  });
+
+  it('resets the stale-snapshot count after a gap', async () => {
+    const h = createHarness();
+    h.outcomes.load = 'stale-snapshot';
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    await h.resolveFetch(0);
+    await h.resolveFetch(1);
+    h.outcomes.load = 'gap';
+    await h.resolveFetch(2);
+
+    expect(h.port.recordGap).toHaveBeenCalledTimes(1);
+    h.outcomes.load = 'stale-snapshot';
+    await h.resolveFetch(3);
+    await h.resolveFetch(4);
+
+    expect(h.phase()).toBe('fetchingSnapshot');
   });
 
   it('aborts the request and clears timers when stopped', () => {

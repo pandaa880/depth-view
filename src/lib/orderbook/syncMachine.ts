@@ -74,8 +74,9 @@ const RECONCILIATION_EVENTS = {
  * socket interruption restarts the sync; failed snapshots retry with backoff.
  *
  * Book operations run inside `enqueueActions` so their result can raise the
- * next event in the same macrostep. The machine is meant to run in an actor,
- * not to be evaluated with pure transition helpers.
+ * next event in the same macrostep. XState resolves that callback once per
+ * selected transition (tests assert one port call per event), so the machine
+ * is meant to run in an actor, not with pure transition helpers.
  */
 export function createBookSyncMachine(port: BookSyncPort) {
   return setup({
@@ -105,7 +106,7 @@ export function createBookSyncMachine(port: BookSyncPort) {
       countStaleSnapshot: assign({
         staleSnapshots: ({ context }) => context.staleSnapshots + 1,
       }),
-      resetRetry: assign({ retryAttempt: 0, staleSnapshots: 0 }),
+      resetRetry: assign({ retryAttempt: 0 }),
       scheduleRetry: assign(({ context }) => ({
         retryDelayMs: Math.min(
           context.retryBaseMs * 2 ** context.retryAttempt,
@@ -148,7 +149,10 @@ export function createBookSyncMachine(port: BookSyncPort) {
         target: '.fetchingSnapshot',
         actions: ['recordGap', 'resetSync', 'clearStaleSnapshots'],
       },
-      LIVE: { target: '.live', actions: ['resetRetry', 'markViewChanged'] },
+      LIVE: {
+        target: '.live',
+        actions: ['resetRetry', 'clearStaleSnapshots', 'markViewChanged'],
+      },
       BRIDGING: { target: '.bridging', actions: 'markViewChanged' },
       // A snapshot older than the stream is refetched without counting a gap.
       STALE_SNAPSHOT: [

@@ -103,7 +103,8 @@ The sync phase is an XState machine (`syncMachine.ts`). The controller
 publication, and forwards socket events to the machine. The machine owns the
 snapshot request (cancelled and aborted when its phase exits), the request
 timeout and the retry backoff. Book operations report results such as `gap`
-or `stale-snapshot` back to the machine as events.
+or `stale-snapshot` back to the machine as events. If the machine fails
+internally, the controller logs the error, counts a gap and restarts the sync.
 
 ```mermaid
 stateDiagram-v2
@@ -111,12 +112,13 @@ stateDiagram-v2
   awaitingEvent --> fetchingSnapshot: first diff
   fetchingSnapshot --> live: snapshot bridges buffer
   fetchingSnapshot --> bridging: snapshot loaded, no bridge yet
-  fetchingSnapshot --> fetchingSnapshot: snapshot older than stream
+  fetchingSnapshot --> fetchingSnapshot: snapshot older than stream, or gap
   fetchingSnapshot --> retryWait: error, timeout, or 3 stale snapshots
   bridging --> live: bridging diff
   live --> fetchingSnapshot: gap or malformed diff
-  bridging --> fetchingSnapshot: gap
-  retryWait --> fetchingSnapshot: backoff elapsed
+  bridging --> fetchingSnapshot: gap, or snapshot older than stream
+  bridging --> retryWait: 3 stale snapshots
+  retryWait --> fetchingSnapshot: backoff elapsed, or gap
   awaitingEvent --> interrupted: socket interrupted
   fetchingSnapshot --> interrupted: socket interrupted
   bridging --> interrupted: socket interrupted

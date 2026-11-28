@@ -178,14 +178,7 @@ class BookCoordinator implements OrderBookController {
     this.pendingGaps = 0;
     this.pendingMessageAt = null;
 
-    this.actor = createActor(this.syncMachine, {
-      input: {
-        requestTimeoutMs: this.requestTimeoutMs,
-        retryBaseMs: this.retryDelayMs,
-      },
-      clock: this.scheduler,
-    });
-    this.actor.start();
+    this.startSyncActor();
 
     this.unsubscribeStatus = this.socket.onStatusChange(this.handleStatus);
     this.unsubscribeDepth = this.socket.subscribe(
@@ -219,6 +212,41 @@ class BookCoordinator implements OrderBookController {
     this.pendingMessageAt = null;
     this.pendingStatus = null;
   };
+
+  private startSyncActor(): void {
+    const actor = createActor(this.syncMachine, {
+      input: {
+        requestTimeoutMs: this.requestTimeoutMs,
+        retryBaseMs: this.retryDelayMs,
+      },
+      clock: this.scheduler,
+    });
+    // An errored actor ignores every later event, so restart the sync instead
+    // of leaving the book frozen until the next stop/start.
+    actor.subscribe({ error: (error) => this.restartSync(actor, error) });
+    this.actor = actor;
+    actor.start();
+  }
+
+  private restartSync(failed: BookSyncActor, error: unknown): void {
+    if (this.actor !== failed) return;
+
+    globalThis.reportError?.(
+      new Error(`Order book sync failed for ${this.symbol}; restarting`, {
+        cause: error,
+      }),
+    );
+    // XState does not stop an errored actor's children; abort the snapshot.
+    for (const child of Object.values(failed.getSnapshot().children)) {
+      child?.stop();
+    }
+    this.buffered = [];
+    clearOrderBook(this.book);
+    this.gapCount += 1;
+    this.pendingGaps += 1;
+    this.startSyncActor();
+    this.requestPublication(true);
+  }
 
   private handleMessage = (data: unknown): void => {
     const actor = this.actor;
