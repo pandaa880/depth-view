@@ -166,6 +166,21 @@ describe('book sync machine', () => {
     expect(h.port.fetchSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it('counts a bridging gap and starts a fresh snapshot', async () => {
+    const h = createHarness();
+    h.outcomes.load = 'waiting';
+    h.actor.send({ type: 'DEPTH', update: depth(101) });
+    await h.resolveFetch(0);
+    h.outcomes.reconcile = 'gap';
+
+    h.actor.send({ type: 'DEPTH', update: depth(200) });
+
+    expect(h.port.recordGap).toHaveBeenCalledTimes(1);
+    expect(h.port.resetSync).toHaveBeenCalledTimes(1);
+    expect(h.phase()).toBe('fetchingSnapshot');
+    expect(h.port.fetchSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it('treats a malformed event as a gap only while live', async () => {
     const h = createHarness();
     h.actor.send({ type: 'MALFORMED' });
@@ -208,6 +223,7 @@ describe('book sync machine', () => {
 
     expect(h.phase()).toBe('retryWait');
     expect(h.port.recordGap).not.toHaveBeenCalled();
+    expect(h.port.resetSync).toHaveBeenCalledTimes(1);
     expect(h.delays()).toEqual([250]);
   });
 
@@ -224,6 +240,7 @@ describe('book sync machine', () => {
       seen.push(delay);
       h.fire(delay);
       expect(h.phase()).toBe('fetchingSnapshot');
+      expect(h.port.resetSync).toHaveBeenCalledTimes(attempt + 1);
     }
 
     expect(seen).toEqual([250, 500, 1000, 2000, 4000, 5000, 5000]);

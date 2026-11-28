@@ -124,6 +124,7 @@ class BookCoordinator implements OrderBookController {
   private readonly syncMachine: BookSyncMachine;
 
   private actor: BookSyncActor | null = null;
+  private activeRequest: AbortController | null = null;
   private book: MutableOrderBook = createOrderBook();
   private buffered: DepthUpdateEvent[] = [];
   private view: OrderBookView;
@@ -236,10 +237,8 @@ class BookCoordinator implements OrderBookController {
         cause: error,
       }),
     );
-    // XState does not stop an errored actor's children; abort the snapshot.
-    for (const child of Object.values(failed.getSnapshot().children)) {
-      child?.stop();
-    }
+    // XState leaves an errored actor's invoked request running; abort it here.
+    this.activeRequest?.abort();
     this.buffered = [];
     clearOrderBook(this.book);
     this.gapCount += 1;
@@ -299,8 +298,16 @@ class BookCoordinator implements OrderBookController {
   }
 
   private fetchSnapshot(signal: AbortSignal): Promise<DepthSnapshotResponse> {
+    // Mirrors the machine's signal and lets restartSync abort the request too.
+    const request = new AbortController();
+    signal.addEventListener('abort', () => request.abort(), { once: true });
+    this.activeRequest = request;
     try {
-      return this.rest.getDepthSnapshot(this.symbol, SNAPSHOT_LIMIT, signal);
+      return this.rest.getDepthSnapshot(
+        this.symbol,
+        SNAPSHOT_LIMIT,
+        request.signal,
+      );
     } catch (error) {
       return Promise.reject(
         new Error('Depth snapshot request failed', { cause: error }),
