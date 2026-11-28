@@ -1,3 +1,5 @@
+import { createActor } from 'xstate';
+
 import type { OrderBookView } from '../../models/market';
 import type { FeedHealth, MarketHealthStore } from '../../stores/marketHealth';
 import { useMarketHealthStore } from '../../stores/marketHealth';
@@ -21,14 +23,22 @@ import {
   preserveOrderBookView,
   projectOrderBookView,
   reconcileBufferedDepthUpdates,
+  type BufferedReconciliation,
   type MutableOrderBook,
 } from './orderBook';
+import {
+  createBookSyncMachine,
+  toSyncState,
+  type BookSyncActor,
+  type BookSyncMachine,
+  type BookSyncPort,
+  type LiveApplyResult,
+} from './syncMachine';
 
 const DEFAULT_REQUEST_TIMEOUT = 10_000;
 const DEFAULT_RETRY_DELAY = 250;
-const MAX_RETRY_DELAY = 5_000;
 const DEFAULT_BUFFER_LIMIT = 5_000;
-const MAX_STALE_SNAPSHOTS = 3;
+const SNAPSHOT_LIMIT = 1000;
 
 type MessageHandler = (data: unknown) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
@@ -83,12 +93,6 @@ export interface OrderBookRegistry {
   acquire: (symbol: string) => OrderBookLease;
 }
 
-interface ActiveSnapshot {
-  generation: number;
-  abort: AbortController;
-  timeout: number | null;
-}
-
 const defaultScheduler: OrderBookScheduler = {
   setTimeout: (callback, delay) => globalThis.setTimeout(callback, delay),
   clearTimeout: (handle) => globalThis.clearTimeout(handle),
@@ -101,6 +105,10 @@ const interruptedStatuses = new Set<ConnectionStatus>([
   CONNECTION_STATUS.Reconnecting,
 ]);
 
+/**
+ * Owns one symbol's book data and view publication. The sync phase (waiting,
+ * snapshot, bridging, live, retry, interrupted) lives in the sync machine.
+ */
 class BookCoordinator implements OrderBookController {
   readonly symbol: string;
 
@@ -113,22 +121,14 @@ class BookCoordinator implements OrderBookController {
   private readonly maxBufferedEvents: number;
   private readonly publication: FrameTask;
   private readonly listeners = new Set<() => void>();
+  private readonly syncMachine: BookSyncMachine;
 
+  private actor: BookSyncActor | null = null;
   private book: MutableOrderBook = createOrderBook();
   private buffered: DepthUpdateEvent[] = [];
   private view: OrderBookView;
   private lastGoodView: OrderBookView | null = null;
-  private viewState: OrderBookView['state'] = 'connecting';
   private gapCount = 0;
-  private started = false;
-  private snapshotReady = false;
-  private awaitingFirstEvent = false;
-  private staleSnapshots = 0;
-  private connectionInterrupted = false;
-  private generation = 0;
-  private activeSnapshot: ActiveSnapshot | null = null;
-  private retryTimer: number | null = null;
-  private retryAttempt = 0;
   private unsubscribeDepth: (() => void) | null = null;
   private unsubscribeStatus: (() => void) | null = null;
   private viewDirty = false;
@@ -149,6 +149,7 @@ class BookCoordinator implements OrderBookController {
     this.publication = (options.frameTaskFactory ?? createFrameTask)(() =>
       this.flushPublication(),
     );
+    this.syncMachine = createBookSyncMachine(this.createSyncPort());
   }
 
   getSnapshot = (): OrderBookView => this.view;
@@ -165,24 +166,26 @@ class BookCoordinator implements OrderBookController {
   };
 
   start = (): void => {
-    if (this.started) return;
+    if (this.actor) return;
 
-    this.started = true;
     this.book = createOrderBook();
     this.buffered = [];
     this.lastGoodView = null;
     this.gapCount = 0;
-    this.retryAttempt = 0;
-    this.snapshotReady = false;
-    this.awaitingFirstEvent = true;
-    this.staleSnapshots = 0;
-    this.connectionInterrupted = false;
-    this.viewState = 'connecting';
     this.view = createEmptyOrderBookView(this.symbol);
     this.viewDirty = true;
     this.pendingStatus = this.socket.getStatus();
     this.pendingGaps = 0;
     this.pendingMessageAt = null;
+
+    this.actor = createActor(this.syncMachine, {
+      input: {
+        requestTimeoutMs: this.requestTimeoutMs,
+        retryBaseMs: this.retryDelayMs,
+      },
+      clock: this.scheduler,
+    });
+    this.actor.start();
 
     this.unsubscribeStatus = this.socket.onStatusChange(this.handleStatus);
     this.unsubscribeDepth = this.socket.subscribe(
@@ -194,12 +197,12 @@ class BookCoordinator implements OrderBookController {
   };
 
   stop = (): void => {
-    if (!this.started) return;
+    const actor = this.actor;
+    if (!actor) return;
 
-    this.started = false;
-    this.generation += 1;
-    this.cancelActiveSnapshot();
-    this.clearRetry();
+    // Stopping the actor aborts the snapshot request and clears its timers.
+    this.actor = null;
+    actor.stop();
     this.publication.cancel();
 
     const unsubscribeDepth = this.unsubscribeDepth;
@@ -211,8 +214,6 @@ class BookCoordinator implements OrderBookController {
 
     this.buffered = [];
     clearOrderBook(this.book);
-    this.snapshotReady = false;
-    this.awaitingFirstEvent = false;
     this.listeners.clear();
     this.pendingGaps = 0;
     this.pendingMessageAt = null;
@@ -220,283 +221,133 @@ class BookCoordinator implements OrderBookController {
   };
 
   private handleMessage = (data: unknown): void => {
-    if (
-      !this.started ||
-      this.connectionInterrupted ||
-      !isDepthUpdateEvent(data) ||
-      data.s !== this.symbol
-    ) {
-      return;
-    }
+    const actor = this.actor;
+    if (!actor || !isDepthUpdateEvent(data) || data.s !== this.symbol) return;
 
-    let event: DepthUpdateEvent;
+    let update: DepthUpdateEvent;
     try {
-      event = normalizeDepthUpdate(data);
+      update = normalizeDepthUpdate(data);
     } catch {
-      if (this.viewState === 'live') this.recordGapAndSync();
+      actor.send({ type: 'MALFORMED' });
       return;
     }
 
-    this.pendingMessageAt = event.E;
-
-    if (this.viewState === 'live') {
-      const result = applyNextDepthUpdate(this.book, event);
-      if (result === 'gap') {
-        this.recordGapAndSync();
-        return;
-      }
-      if (result === 'applied') {
-        this.requestPublication(true);
-      }
-      return;
-    }
-
-    if (this.snapshotReady) {
-      this.reconcileReadyBook([event]);
-      return;
-    }
-
-    if (this.buffered.length >= this.maxBufferedEvents) {
-      this.recordGapAndSync();
-      return;
-    }
-
-    this.buffered.push(event);
-    if (this.awaitingFirstEvent) {
-      this.awaitingFirstEvent = false;
-      this.requestSnapshot();
-    } else {
-      this.requestPublication(false);
-    }
+    actor.send({ type: 'DEPTH', update });
   };
 
   private handleStatus = (status: ConnectionStatus): void => {
-    if (!this.started) return;
+    const actor = this.actor;
+    if (!actor) return;
+
     this.pendingStatus = status;
-
     if (status === CONNECTION_STATUS.Open) {
-      if (this.connectionInterrupted) {
-        this.connectionInterrupted = false;
-        this.awaitingFirstEvent = true;
-        this.requestPublication(false);
-      } else {
-        this.requestPublication(false);
-      }
-      return;
+      actor.send({ type: 'WS_OPEN' });
+    } else if (interruptedStatuses.has(status)) {
+      actor.send({ type: 'WS_INTERRUPTED' });
     }
-
-    if (!interruptedStatuses.has(status)) {
-      this.requestPublication(false);
-      return;
-    }
-
-    if (!this.connectionInterrupted) {
-      this.connectionInterrupted = true;
-      this.gapCount += 1;
-      this.pendingGaps += 1;
-      this.invalidateSync();
-      this.viewState = this.lastGoodView ? 'stale' : 'connecting';
-      this.requestPublication(true);
-    } else {
-      this.requestPublication(false);
-    }
+    this.requestPublication(false);
   };
 
-  private startSnapshot(): void {
-    if (!this.started || this.connectionInterrupted) return;
-
-    this.invalidateSync();
-    this.requestSnapshot();
-  }
-
-  // Fetches a snapshot for the current generation, keeping buffered events.
-  private requestSnapshot(): void {
-    if (!this.started || this.connectionInterrupted) return;
-
-    const generation = this.generation;
-    this.viewState = this.lastGoodView ? 'stale' : 'syncing';
-    this.requestPublication(true);
-
-    const active: ActiveSnapshot = {
-      generation,
-      abort: new AbortController(),
-      timeout: null,
+  private createSyncPort(): BookSyncPort {
+    return {
+      fetchSnapshot: (signal) => this.fetchSnapshot(signal),
+      bufferEvent: (update) => this.bufferEvent(update),
+      loadSnapshot: (snapshot) => this.loadSnapshot(snapshot),
+      reconcileEvent: (update) => {
+        this.noteMessage(update);
+        return this.reconcileReadyBook([update]);
+      },
+      applyLiveEvent: (update) => this.applyLiveEvent(update),
+      recordGap: () => {
+        this.gapCount += 1;
+        this.pendingGaps += 1;
+      },
+      resetSync: () => {
+        this.buffered = [];
+        clearOrderBook(this.book);
+      },
+      markViewChanged: () => this.requestPublication(true),
     };
-    this.activeSnapshot = active;
-    active.timeout = this.scheduler.setTimeout(() => {
-      if (this.activeSnapshot !== active) return;
-      this.activeSnapshot = null;
-      active.timeout = null;
-      active.abort.abort();
-      this.handleSnapshotFailure(generation);
-    }, this.requestTimeoutMs);
-
-    let request: Promise<DepthSnapshotResponse>;
-    try {
-      request = this.rest.getDepthSnapshot(
-        this.symbol,
-        1000,
-        active.abort.signal,
-      );
-    } catch {
-      this.rejectSnapshot(active);
-      return;
-    }
-
-    Promise.resolve(request).then(
-      (snapshot) => this.resolveSnapshot(active, snapshot),
-      () => this.rejectSnapshot(active),
-    );
   }
 
-  private resolveSnapshot(
-    active: ActiveSnapshot,
-    snapshot: DepthSnapshotResponse,
-  ): void {
-    if (this.activeSnapshot !== active || !this.started) return;
-    this.clearSnapshotTimer(active);
-    this.activeSnapshot = null;
+  private fetchSnapshot(signal: AbortSignal): Promise<DepthSnapshotResponse> {
+    try {
+      return this.rest.getDepthSnapshot(this.symbol, SNAPSHOT_LIMIT, signal);
+    } catch (error) {
+      return Promise.reject(
+        new Error('Depth snapshot request failed', { cause: error }),
+      );
+    }
+  }
 
+  private bufferEvent(update: DepthUpdateEvent): boolean {
+    this.noteMessage(update);
+    if (this.buffered.length >= this.maxBufferedEvents) return false;
+
+    this.buffered.push(update);
+    this.requestPublication(false);
+    return true;
+  }
+
+  private loadSnapshot(
+    snapshot: DepthSnapshotResponse,
+  ): BufferedReconciliation {
     try {
       loadDepthSnapshot(this.book, snapshot);
-      this.snapshotReady = true;
-      this.reconcileReadyBook(this.buffered);
     } catch {
-      this.recordGapAndSync();
+      return 'gap';
     }
+    return this.reconcileReadyBook(this.buffered);
   }
 
-  private rejectSnapshot(active: ActiveSnapshot): void {
-    if (this.activeSnapshot !== active || !this.started) return;
-    this.clearSnapshotTimer(active);
-    this.activeSnapshot = null;
-    this.handleSnapshotFailure(active.generation);
+  private applyLiveEvent(update: DepthUpdateEvent): LiveApplyResult {
+    this.noteMessage(update);
+    const result = applyNextDepthUpdate(this.book, update);
+    if (result === 'applied') this.requestPublication(true);
+    return result;
   }
 
-  private handleSnapshotFailure(generation: number): void {
-    if (
-      !this.started ||
-      this.connectionInterrupted ||
-      generation !== this.generation
-    ) {
-      return;
-    }
-
-    this.snapshotReady = false;
-    this.staleSnapshots = 0;
-    this.viewState = this.lastGoodView ? 'stale' : 'error';
-    this.requestPublication(true);
-
-    const delay = Math.min(
-      this.retryDelayMs * 2 ** this.retryAttempt,
-      MAX_RETRY_DELAY,
-    );
-    this.retryAttempt += 1;
-    this.clearRetry();
-    this.retryTimer = this.scheduler.setTimeout(() => {
-      this.retryTimer = null;
-      if (generation !== this.generation) return;
-      this.startSnapshot();
-    }, delay);
-  }
-
-  private reconcileReadyBook(events: DepthUpdateEvent[]): void {
+  // Drops events the snapshot already covers, then bridges the rest onto it.
+  private reconcileReadyBook(
+    events: DepthUpdateEvent[],
+  ): BufferedReconciliation {
     const staleId = this.book.lastUpdateId;
     const pending = events.filter(
       (event) => staleId === null || event.u > staleId,
     );
 
-    let result: ReturnType<typeof reconcileBufferedDepthUpdates> = 'waiting';
+    let result: BufferedReconciliation;
     try {
       result = reconcileBufferedDepthUpdates(this.book, pending);
     } catch {
       result = 'gap';
     }
 
-    if (this.buffered.length > 0) this.buffered = [];
-
-    if (result === 'gap') {
-      this.recordGapAndSync();
-      return;
-    }
-
-    if (result === 'stale-snapshot') {
-      this.refetchStaleSnapshot(pending);
-      return;
-    }
-
-    if (result === 'live') {
-      this.viewState = 'live';
-      this.retryAttempt = 0;
-      this.staleSnapshots = 0;
-    } else {
-      this.viewState = this.lastGoodView ? 'stale' : 'syncing';
-    }
-    this.requestPublication(true);
-  }
-
-  // The snapshot is older than the stream: refetch, not a sequence gap.
-  private refetchStaleSnapshot(pending: DepthUpdateEvent[]): void {
-    this.staleSnapshots += 1;
-    this.snapshotReady = false;
-    clearOrderBook(this.book);
-
-    if (this.staleSnapshots >= MAX_STALE_SNAPSHOTS) {
-      this.buffered = [];
-      this.handleSnapshotFailure(this.generation);
-      return;
-    }
-
-    this.buffered = pending;
-    this.requestSnapshot();
-  }
-
-  private recordGapAndSync(): void {
-    if (!this.started) return;
-    this.gapCount += 1;
-    this.pendingGaps += 1;
-    this.startSnapshot();
-  }
-
-  private invalidateSync(): void {
-    this.generation += 1;
-    this.cancelActiveSnapshot();
-    this.clearRetry();
     this.buffered = [];
-    clearOrderBook(this.book);
-    this.snapshotReady = false;
-    this.awaitingFirstEvent = false;
-    this.staleSnapshots = 0;
+    // The snapshot is older than the stream: keep the events for the refetch.
+    if (result === 'stale-snapshot') {
+      clearOrderBook(this.book);
+      this.buffered = pending;
+    }
+    return result;
   }
 
-  private cancelActiveSnapshot(): void {
-    const active = this.activeSnapshot;
-    if (!active) return;
-    this.activeSnapshot = null;
-    this.clearSnapshotTimer(active);
-    active.abort.abort();
-  }
-
-  private clearSnapshotTimer(active: ActiveSnapshot): void {
-    if (active.timeout === null) return;
-    this.scheduler.clearTimeout(active.timeout);
-    active.timeout = null;
-  }
-
-  private clearRetry(): void {
-    if (this.retryTimer === null) return;
-    this.scheduler.clearTimeout(this.retryTimer);
-    this.retryTimer = null;
+  private noteMessage(update: DepthUpdateEvent): void {
+    this.pendingMessageAt = update.E;
   }
 
   private requestPublication(viewChanged: boolean): void {
-    if (!this.started) return;
+    if (!this.actor) return;
     if (viewChanged) this.viewDirty = true;
     this.publication.request();
   }
 
-  private deriveView(): OrderBookView {
-    if (this.viewState === 'live') {
+  private deriveView(actor: BookSyncActor): OrderBookView {
+    const state = toSyncState(
+      actor.getSnapshot().value,
+      this.lastGoodView !== null,
+    );
+    if (state === 'live') {
       return projectOrderBookView(
         this.book,
         this.symbol,
@@ -507,15 +358,16 @@ class BookCoordinator implements OrderBookController {
 
     return preserveOrderBookView(
       this.lastGoodView ?? this.view,
-      this.viewState,
+      state,
       this.gapCount,
     );
   }
 
   private flushPublication(): void {
-    if (!this.started) return;
+    const actor = this.actor;
+    if (!actor) return;
 
-    const nextView = this.viewDirty ? this.deriveView() : this.view;
+    const nextView = this.viewDirty ? this.deriveView(actor) : this.view;
     this.viewDirty = false;
     const gaps = this.pendingGaps;
     const status = this.pendingStatus;
